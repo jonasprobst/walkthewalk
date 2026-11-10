@@ -49,7 +49,11 @@ body.dragging .add{border-color:var(--pink);background:#fff0f5}
 /* ---------- PLAYER ---------- */
 #player.on{display:grid;position:fixed;inset:0;grid-template-columns:1fr 330px;grid-template-rows:1fr auto;grid-template-areas:"map side" "ctrl ctrl";background:var(--sky)}
 #mapWrap{grid-area:map;position:relative;min-height:0}
-#map{position:absolute;inset:0;background:#dfe9d8}
+#map{position:absolute;inset:0;background:#dfe9d8;z-index:0}
+#map3d{position:absolute;inset:0;z-index:1;display:none;background:#bfd9f2}
+#map3d.on{display:block}
+#map3d .cesium-viewer-bottom{left:auto;right:4px}
+#d3Btn{position:absolute;top:70px;right:10px;z-index:600}
 #side{grid-area:side;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:12px}
 #ctrl{grid-area:ctrl;display:flex;align-items:center;gap:14px;padding:10px 16px calc(10px + env(safe-area-inset-bottom));background:#fff;box-shadow:0 -4px 18px rgba(40,80,140,.1);z-index:500}
 .topbar{position:absolute;top:10px;left:10px;right:10px;z-index:600;display:flex;gap:8px;align-items:flex-start;pointer-events:none}
@@ -203,6 +207,8 @@ body.dragging .add{border-color:var(--pink);background:#fff0f5}
 <section id="player" class="screen">
   <div id="mapWrap">
     <div id="map"></div>
+    <div id="map3d"></div>
+    <button class="pill btn" id="d3Btn" title="3D view" style="display:none">🏔️ 3D</button>
     <div class="topbar">
       <button class="pill btn big" id="backBtn" title="Back to all adventures">⬅️</button>
       <div class="pill" id="trackTitle"></div>
@@ -688,10 +694,11 @@ function openTrackInner(tr) {
   sizeScrub();
   updatePlayBtn();
   funOpen(tr);
+  d3Open(tr);
   openBuddyPicker();
 }
 function closePlayer() {
-  funClose();
+  funClose(); d3Exit();
   S.playing = false; updatePlayBtn();
   $('#player').classList.remove('on'); $('#home').classList.add('on');
   $('#endModal').classList.remove('on');
@@ -715,6 +722,7 @@ function setBuddy(i) {
   S.buddy = BUDDIES[i] || BUDDIES[0];
   heroEl.querySelector('.emo').textContent = S.buddy.e;
   orientHero(S.lastBear);
+  d3Buddy();
 }
 function orientHero(b) {
   const el = heroEl.querySelector('.emo'), bd = S.buddy;
@@ -766,7 +774,7 @@ function idxAt(vt) {
 function play(fromPicker) {
   if (S.ended || S.vt >= P.vEnd) { seek(0); S.ended = false; }
   S.playing = true; updatePlayBtn(); ensureAudio();
-  if (S.follow) map.setView(posAt(S.vt).ll, Math.max(map.getZoom(), 17), { animate: !fromPicker });
+  if (S.follow && !D3.on) map.setView(posAt(S.vt).ll, Math.max(map.getZoom(), 17), { animate: !fromPicker });
 }
 function pause() { S.playing = false; updatePlayBtn(); }
 function updatePlayBtn() { $('#playBtn').textContent = S.playing ? '⏸' : '▶'; heroEl && heroEl.classList.toggle('moving', S.playing); }
@@ -791,7 +799,8 @@ function render(force) {
   // direction: look a little ahead so the buddy doesn't jitter
   const k = Math.min(P.n - 1, i + 3);
   if (haversine(P.LA[i], P.LO[i], P.LA[k], P.LO[k]) > 3) { S.lastBear = bearing(P.LA[i], P.LO[i], P.LA[k], P.LO[k]); orientHero(S.lastBear); }
-  if (S.follow && S.playing) map.panTo(ll, { animate: false });
+  if (S.follow && S.playing && !D3.on) map.panTo(ll, { animate: false });
+  d3Render(i, ll);
   const spd = isFinite(P.SP[i]) ? P.SP[i] + ((isFinite(P.SP[j]) ? P.SP[j] : P.SP[i]) - P.SP[i]) * f : 0;
   heroEl.classList.toggle('moving', S.playing && spd > 1);
   funRender(i, spd, ll);
@@ -891,7 +900,7 @@ function drawScrub() {
   sctx.fillStyle = '#fff'; sctx.fill(); sctx.lineWidth = 3; sctx.strokeStyle = '#1d2b4f'; sctx.stroke();
 }
 let scrubbing = false, wasPlaying = false;
-function scrubTo(e) { const r = scrub.getBoundingClientRect(); seek((e.clientX - r.left) / r.width * P.vEnd); if (S.follow) map.panTo(posAt(S.vt).ll, { animate: false }); }
+function scrubTo(e) { const r = scrub.getBoundingClientRect(); seek((e.clientX - r.left) / r.width * P.vEnd); if (S.follow && !D3.on) map.panTo(posAt(S.vt).ll, { animate: false }); }
 scrub.addEventListener('pointerdown', e => { scrubbing = true; wasPlaying = S.playing; S.playing = false; scrub.setPointerCapture(e.pointerId); scrubTo(e); });
 scrub.addEventListener('pointermove', e => { if (scrubbing) scrubTo(e); });
 const endScrub = () => { if (!scrubbing) return; scrubbing = false; if (wasPlaying && S.vt < P.vEnd) { S.playing = true; } updatePlayBtn(); };
@@ -917,12 +926,13 @@ function setFollow(on) {
 }
 function setGhost(on) {
   S.ghost = on; $('#ghostBtn').classList.toggle('on', on);
+  if (D3 && D3.ghost) D3.ghost.show = on;
   if (!ghostLine) return;
   if (on) ghostLine.addTo(staticGroup); else staticGroup.removeLayer(ghostLine);
 }
 $('#playBtn').onclick = () => S.playing ? pause() : play();
 $('#backBtn').onclick = closePlayer;
-$('#followBtn').onclick = () => setFollow(!S.follow);
+$('#followBtn').onclick = () => D3.on ? d3CycleCam() : setFollow(!S.follow);
 $('#ghostBtn').onclick = () => setGhost(!S.ghost);
 $('#buddyBtn').onclick = openBuddyPicker;
 $('#trackTitle').onclick = openBuddyPicker;
@@ -1230,6 +1240,183 @@ function sfx(name) {
     if (name === 'fanfare') [523, 659, 784, 1047].forEach((f, k) => tone(f, t + k * .14, k === 3 ? .7 : .2, 'triangle', .15));
   } catch (e) {}
 }
+
+/* ================= 3D mode (opt-in, Switzerland only: swisstopo terrain, aerial photos and 3D houses) ================= */
+const CESIUM_BASES = ['https://cesium.com/downloads/cesiumjs/releases/1.124/Build/Cesium/', 'https://cdn.jsdelivr.net/npm/cesium@1.124.0/Build/Cesium/'];
+const SWISS_TERRAIN = 'https://3d.geo.admin.ch/ch.swisstopo.terrain.3d/v1';
+const SWISS_BUILDINGS = 'https://3d.geo.admin.ch/ch.swisstopo.swissbuildings3d.3d/v1/tileset.json';
+const SWISS_IMAGE = 'https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.swissimage/default/current/3857/{z}/{x}/{y}.jpeg';
+var D3 = { on: false, loading: false, viewer: null, bb: null, hero: null, ghost: null, trail: [], chunkStart: 0, chunkNo: 0,
+             h: null, lastClamp: 0, head: null, cam: 'chase', rebuildT: null };
+const D3_CHUNK = 25;
+const inSwiss = tr => { const p = tr.pts[0]; return p[1] > 45.8 && p[1] < 47.85 && p[2] > 5.9 && p[2] < 10.55; };
+const playerOpen = () => $('#player').classList.contains('on');
+
+function loadScript(src) {
+  return new Promise((ok, bad) => {
+    const s = document.createElement('script');
+    s.src = src; s.onload = ok; s.onerror = () => { s.remove(); bad(new Error('Could not load ' + src)); };
+    document.head.appendChild(s);
+  });
+}
+async function loadCesium() {
+  if (window.Cesium) return;
+  let err;
+  for (const base of CESIUM_BASES) {
+    try {
+      window.CESIUM_BASE_URL = base;
+      await loadScript(base + 'Cesium.js');
+      const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = base + 'Widgets/widgets.css'; document.head.appendChild(l);
+      return;
+    } catch (e) { err = e; }
+  }
+  throw err;
+}
+function d3Viewer() {
+  if (D3.viewer) return D3.viewer;
+  const C = Cesium;
+  const v = new C.Viewer('map3d', { baseLayer: false, baseLayerPicker: false, geocoder: false, homeButton: false, sceneModePicker: false,
+    navigationHelpButton: false, animation: false, timeline: false, fullscreenButton: false, infoBox: false, selectionIndicator: false, scene3DOnly: true });
+  v.imageryLayers.addImageryProvider(new C.UrlTemplateImageryProvider({ url: SWISS_IMAGE, maximumLevel: 19,
+    rectangle: C.Rectangle.fromDegrees(5.14, 45.4, 11.48, 48.23), credit: new C.Credit('© swisstopo') }));
+  v.scene.globe.depthTestAgainstTerrain = true;
+  v.scene.globe.baseColor = C.Color.fromCssColorString('#dfe9d8');
+  D3.bb = v.scene.primitives.add(new C.BillboardCollection({ scene: v.scene }));
+  D3.viewer = v;
+  // hills and houses load in the background; if one fails the rest still works
+  C.CesiumTerrainProvider.fromUrl(SWISS_TERRAIN).then(tp => { v.terrainProvider = tp; })
+    .catch(e => { console.warn(e); toast('😕 Hills could not load'); });
+  C.Cesium3DTileset.fromUrl(SWISS_BUILDINGS, { maximumScreenSpaceError: 24 }).then(ts => { v.scene.primitives.add(ts); })
+    .catch(e => { console.warn(e); toast('😕 3D houses could not load'); });
+  return v;
+}
+function pinCanvas(emoji, plain) {
+  const c = document.createElement('canvas'); c.width = 128; c.height = 168;
+  const x = c.getContext('2d');
+  x.textAlign = 'center'; x.textBaseline = 'middle';
+  if (plain) { x.font = '84px system-ui, sans-serif'; x.fillText(emoji, 64, 110); return c; }
+  x.fillStyle = '#7b5cff'; x.beginPath(); x.moveTo(40, 104); x.lineTo(88, 104); x.lineTo(64, 158); x.closePath(); x.fill();
+  x.beginPath(); x.arc(64, 60, 54, 0, 7); x.fillStyle = '#fff'; x.fill(); x.lineWidth = 9; x.strokeStyle = '#7b5cff'; x.stroke();
+  x.font = '66px system-ui, sans-serif'; x.fillStyle = '#000'; x.fillText(emoji, 64, 66);
+  x.beginPath(); x.arc(64, 157, 8, 0, 7); x.fillStyle = '#ff5d8f'; x.fill(); x.lineWidth = 3; x.strokeStyle = '#fff'; x.stroke();
+  return c;
+}
+function d3Buddy() { if (D3.hero && S.buddy) D3.hero.image = pinCanvas(S.buddy.e); }
+
+/* set up the current trip in the 3D scene */
+function d3Track() {
+  const C = Cesium, v = D3.viewer;
+  v.entities.removeAll(); D3.bb.removeAll();
+  D3.trail = []; D3.chunkStart = 0; D3.chunkNo = 0; D3.h = null; D3.head = null; D3.lastClamp = 0;
+  const step = Math.ceil(P.n / 1200), arr = [];
+  for (let k = 0; k < P.n; k += step) arr.push(P.LO[k], P.LA[k]);
+  arr.push(P.LO[P.n - 1], P.LA[P.n - 1]);
+  D3.ghost = v.entities.add({ show: S.ghost, polyline: { positions: C.Cartesian3.fromDegreesArray(arr), width: 3,
+    material: C.Color.WHITE.withAlpha(.65), clampToGround: true } });
+  const mark = (k, e) => D3.bb.add({ position: C.Cartesian3.fromDegrees(P.LO[k], P.LA[k]), image: pinCanvas(e, true), scale: .4,
+    verticalOrigin: C.VerticalOrigin.BOTTOM, heightReference: C.HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance: Number.POSITIVE_INFINITY });
+  mark(0, '🏠'); mark(P.n - 1, '🏁');
+  D3.hero = D3.bb.add({ position: C.Cartesian3.fromDegrees(P.LO[0], P.LA[0], 600), image: pinCanvas(S.buddy ? S.buddy.e : '🐕'), scale: .5,
+    verticalOrigin: C.VerticalOrigin.BOTTOM, disableDepthTestDistance: Number.POSITIVE_INFINITY });
+}
+function d3Chunk(a, b) {
+  const C = Cesium, arr = [];
+  for (let k = a; k <= b; k++) arr.push(P.LO[k], P.LA[k]);
+  const n = D3.chunkNo++;
+  D3.trail.push(D3.viewer.entities.add({ polyline: { positions: C.Cartesian3.fromDegreesArray(arr), width: 7,
+    material: C.Color.fromHsl(((n * 28) % 360) / 360, .95, .52), clampToGround: true } }));
+}
+function d3Trail(i) {
+  if (i < D3.chunkStart) { // jumped back: redraw the trail (a moment later, so dragging stays smooth)
+    if (!D3.rebuildT) D3.rebuildT = setTimeout(() => {
+      D3.rebuildT = null;
+      if (!D3.on || !P) return;
+      for (const e of D3.trail) D3.viewer.entities.remove(e);
+      D3.trail = []; D3.chunkStart = 0; D3.chunkNo = 0;
+      d3Trail(posAt(S.vt).i);
+    }, 250);
+    return;
+  }
+  while (i - D3.chunkStart >= D3_CHUNK) { d3Chunk(D3.chunkStart, D3.chunkStart + D3_CHUNK); D3.chunkStart += D3_CHUNK; }
+}
+
+/* every frame: move the buddy, stand it on the ground or roof below, move the camera */
+function d3Render(i, ll) {
+  if (!D3.on || !D3.hero) return;
+  const C = Cesium, v = D3.viewer, scene = v.scene, now = performance.now();
+  d3Trail(i);
+  // which way are we going? look ~12 m ahead
+  let k = i + 1;
+  while (k < P.n - 1 && k < i + 60 && haversine(P.LA[i], P.LO[i], P.LA[k], P.LO[k]) < 12) k++;
+  if (k < P.n && haversine(P.LA[i], P.LO[i], P.LA[k], P.LO[k]) >= 6) {
+    const t = bearing(P.LA[i], P.LO[i], P.LA[k], P.LO[k]);
+    if (D3.head === null) D3.head = t;
+    else D3.head = (D3.head + ((t - D3.head + 540) % 360 - 180) * (S.playing ? .04 : .3) + 360) % 360;
+  }
+  if (D3.head === null) D3.head = 0;
+  // height of whatever is below (roof or ground)
+  if (now - D3.lastClamp > 150) {
+    D3.lastClamp = now;
+    let h;
+    try {
+      if (scene.clampToHeightSupported) {
+        const c = scene.clampToHeight(C.Cartesian3.fromDegrees(ll[1], ll[0], 0));
+        if (c) h = C.Cartographic.fromCartesian(c).height;
+      }
+    } catch (e) {}
+    if (h === undefined) h = scene.globe.getHeight(C.Cartographic.fromDegrees(ll[1], ll[0]));
+    if (h !== undefined && isFinite(h)) D3.hT = h;
+  }
+  if (D3.hT !== undefined) D3.h = D3.h === null ? D3.hT : D3.h + (D3.hT - D3.h) * .25;
+  const pos = C.Cartesian3.fromDegrees(ll[1], ll[0], D3.h === null ? 600 : D3.h);
+  D3.hero.position = pos;
+  if (D3.cam === 'chase') v.camera.lookAt(pos, new C.HeadingPitchRange(C.Math.toRadians(D3.head), C.Math.toRadians(-24), 130));
+  else if (D3.cam === 'bird') v.camera.lookAt(pos, new C.HeadingPitchRange(C.Math.toRadians(D3.head), C.Math.toRadians(-58), 380));
+}
+function d3CycleCam() {
+  D3.cam = { chase: 'bird', bird: 'free', free: 'chase' }[D3.cam];
+  toast({ chase: '🎥 Right behind you', bird: '🦅 Bird view', free: '✋ Look around yourself' }[D3.cam]);
+  if (D3.cam === 'free') D3.viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
+  $('#followBtn').classList.toggle('on', D3.cam !== 'free');
+  render(true);
+}
+
+/* --- switching 3D on and off --- */
+async function d3Enter() {
+  if (D3.loading || D3.on) return;
+  D3.loading = true;
+  toast('🏔️ Loading 3D…');
+  try {
+    await loadCesium();
+    if (!playerOpen()) { D3.loading = false; return; }
+    $('#map3d').classList.add('on');
+    const v = d3Viewer();
+    v.useDefaultRenderLoop = true;
+    d3Track();
+    D3.on = true; D3.cam = 'chase';
+    $('#d3Btn').classList.add('on'); $('#followBtn').classList.add('on');
+    prefs.d3 = true; savePrefs();
+    render(true);
+  } catch (e) {
+    console.error(e);
+    d3Exit(); prefs.d3 = false; savePrefs();
+    toast('😕 3D did not work here');
+  }
+  D3.loading = false;
+}
+function d3Exit() {
+  D3.on = false;
+  $('#map3d').classList.remove('on'); $('#d3Btn').classList.remove('on');
+  $('#followBtn').classList.toggle('on', S.follow);
+  if (D3.viewer) D3.viewer.useDefaultRenderLoop = false;
+}
+function d3Open(tr) {
+  const ok = inSwiss(tr);
+  $('#d3Btn').style.display = ok ? '' : 'none';
+  d3Exit();
+  if (ok && prefs.d3) d3Enter();
+}
+$('#d3Btn').onclick = () => { if (D3.on) { d3Exit(); prefs.d3 = false; savePrefs(); map.invalidateSize(); } else d3Enter(); };
 
 /* ================= start ================= */
 loadTracks();
