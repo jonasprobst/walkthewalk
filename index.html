@@ -125,6 +125,37 @@ body.dragging .add{border-color:var(--pink);background:#fff0f5}
 #homeToast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 18px;border-radius:16px;font-size:17px;opacity:0;transition:.3s;z-index:3000;pointer-events:none;max-width:90vw;text-align:center}
 #homeToast.show{opacity:1}
 
+/* fun extras */
+.funList{display:flex;flex-direction:column;gap:10px;text-align:left}
+.funRow{display:flex;align-items:center;gap:12px;background:#f3f7fd;border-radius:20px;padding:10px 14px;box-shadow:0 4px 0 #dbe6f4;width:100%}
+.funRow .fi{font-size:36px;line-height:1}
+.funRow .ft{flex:1;min-width:0}
+.funRow b{display:block;font-size:20px;line-height:1.15}
+.funRow span{display:block;font-size:14.5px;color:var(--soft);line-height:1.25}
+.sw{flex:0 0 58px;height:34px;border-radius:17px;background:#c9d3e2;position:relative;transition:.2s}
+.sw::after{content:'';position:absolute;left:4px;top:4px;width:26px;height:26px;border-radius:50%;background:#fff;box-shadow:0 2px 3px rgba(0,0,0,.2);transition:.2s}
+.funRow.on{background:#efeaff;box-shadow:0 4px 0 var(--purple)}
+.funRow.on .sw{background:var(--teal)}
+.funRow.on .sw::after{left:28px}
+.funNote{font-size:13.5px !important;margin-top:12px !important}
+#funPill{position:absolute;left:10px;bottom:22px;z-index:600;font-size:20px;font-weight:800;display:none}
+#funPill.show{display:flex}
+.hero.roofhop .head{animation:jump .45s ease-in-out infinite}
+.hero.power .bob{animation:float 1.2s ease-in-out infinite}
+.hero.power .head{border-color:#ffb000;box-shadow:0 0 0 3px #fff6c9,0 0 22px 8px rgba(255,210,63,.95)}
+.hero.power .tail{border-top-color:#ffb000}
+.hero.power .ping{border-color:#ffd23f}
+.spark{font-size:20px;line-height:1;animation:spark .9s ease-out forwards;pointer-events:none}
+.coin{font-size:22px;line-height:1;text-align:center;filter:drop-shadow(0 2px 1px rgba(0,0,0,.35));animation:spin 2s ease-in-out infinite}
+.coin.gem{font-size:26px;animation:twinkle 1s ease-in-out infinite}
+.coin.pop{animation:pop2 .45s ease-out forwards}
+.roofLit{animation:roofFlash 1s ease-out}
+@keyframes jump{0%,100%{transform:translateY(0)}50%{transform:translateY(-12px)}}
+@keyframes float{0%,100%{transform:translateY(-8px)}50%{transform:translateY(-15px)}}
+@keyframes spark{from{transform:translateY(0) scale(1);opacity:1}to{transform:translateY(-26px) scale(.4);opacity:0}}
+@keyframes spin{0%,100%{transform:scaleX(1)}50%{transform:scaleX(.35)}}
+@keyframes pop2{to{transform:translateY(-30px) scale(1.8);opacity:0}}
+@keyframes roofFlash{from{fill-opacity:1;stroke-width:6}to{fill-opacity:.55;stroke-width:2}}
 @keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
 @keyframes wiggle{0%,100%{transform:rotate(-6deg)}50%{transform:rotate(6deg)}}
 @keyframes twinkle{0%,100%{transform:scale(1)}50%{transform:scale(1.25)}}
@@ -176,11 +207,13 @@ body.dragging .add{border-color:var(--pink);background:#fff0f5}
       <button class="pill btn big" id="backBtn" title="Back to all adventures">⬅️</button>
       <div class="pill" id="trackTitle"></div>
       <div class="mapBtns">
+        <button class="pill btn" id="funBtn" title="Fun extras">✨</button>
         <button class="pill btn" id="followBtn" title="Camera follows your buddy">🎥 <span class="lbl">Follow</span></button>
         <button class="pill btn" id="ghostBtn" title="Show the whole path">👀 <span class="lbl">Whole path</span></button>
       </div>
     </div>
     <div id="toast"></div>
+    <div class="pill" id="funPill"></div>
   </div>
 
   <aside id="side">
@@ -219,6 +252,18 @@ body.dragging .add{border-color:var(--pink);background:#fff0f5}
     <h2>Who's coming along?</h2>
     <p>Pick a buddy to walk the path!</p>
     <div class="buddies" id="buddies"></div>
+    <button class="cta alt" id="funFromPicker" style="margin-top:16px">✨ Fun extras</button>
+  </div>
+</div>
+
+<!-- fun extras -->
+<div class="modal" id="funModal">
+  <div class="box">
+    <h2>✨ Fun extras</h2>
+    <p>Switch on whatever you like!</p>
+    <div class="funList" id="funList"></div>
+    <p class="funNote">Rooftops use house shapes from OpenStreetMap. They need internet the first time a trip is played.</p>
+    <button class="cta" id="funDone">Done</button>
   </div>
 </div>
 
@@ -282,6 +327,8 @@ const fmtDate = ms => new Date(ms).toLocaleDateString([], { weekday: 'short', da
 
 let prefs = { buddy: 0 };
 try { prefs = Object.assign(prefs, JSON.parse(localStorage.getItem(PREF) || '{}')); } catch (e) {}
+prefs.fun = Object.assign({ roofs: false, powers: false, sounds: false, coins: false }, prefs.fun || {});
+const F = prefs.fun;
 function savePrefs() { try { localStorage.setItem(PREF, JSON.stringify(prefs)); } catch (e) {} }
 
 /* ================= parsing ================= */
@@ -640,9 +687,11 @@ function openTrackInner(tr) {
   $('#climbInfo').textContent = P.hasAlt ? `⛰️ ${Math.round(P.altMin)}–${Math.round(P.altMax)} m` : '';
   sizeScrub();
   updatePlayBtn();
+  funOpen(tr);
   openBuddyPicker();
 }
 function closePlayer() {
+  funClose();
   S.playing = false; updatePlayBtn();
   $('#player').classList.remove('on'); $('#home').classList.add('on');
   $('#endModal').classList.remove('on');
@@ -716,7 +765,7 @@ function idxAt(vt) {
 }
 function play(fromPicker) {
   if (S.ended || S.vt >= P.vEnd) { seek(0); S.ended = false; }
-  S.playing = true; updatePlayBtn();
+  S.playing = true; updatePlayBtn(); ensureAudio();
   if (S.follow) map.setView(posAt(S.vt).ll, Math.max(map.getZoom(), 17), { animate: !fromPicker });
 }
 function pause() { S.playing = false; updatePlayBtn(); }
@@ -745,10 +794,11 @@ function render(force) {
   if (S.follow && S.playing) map.panTo(ll, { animate: false });
   const spd = isFinite(P.SP[i]) ? P.SP[i] + ((isFinite(P.SP[j]) ? P.SP[j] : P.SP[i]) - P.SP[i]) * f : 0;
   heroEl.classList.toggle('moving', S.playing && spd > 1);
+  funRender(i, spd, ll);
   // milestones
   if (S.playing) {
     const km = Math.floor(P.D[i] / 1000);
-    if (km > S.lastKm) { S.lastKm = km; toast(`🎉 ${km} km done!`); }
+    if (km > S.lastKm) { S.lastKm = km; toast(`🎉 ${km} km done!`); sfx('chime'); }
     const poiCount = P.POI.filter(q => q <= i).length;
     if (poiCount > S.lastPoi) { S.lastPoi = poiCount; toast('⭐ A spot you marked!'); }
   }
@@ -903,6 +953,7 @@ function finish() {
   ];
   if (avg < 7) badges.push(['👣', `≈ ${(Math.round(P.dist / 0.55 / 100) * 100).toLocaleString()}`, 'steps (roughly)']);
   if (P.POI.length) badges.push(['⭐', `${P.POI.length}`, `special spot${P.POI.length > 1 ? 's' : ''} marked`]);
+  funBadges(badges); sfx('fanfare');
   $('#badges').innerHTML = badges.map(b => `<div class="badge"><div class="i">${b[0]}</div><div><b>${b[1]}</b><span>${b[2]}</span></div></div>`).join('');
   $('#endSub').textContent = `${S.buddy.e} ${S.buddy.n} made it to the finish 🏁`;
   setTimeout(() => { $('#endModal').classList.add('on'); confetti(); }, 500);
@@ -922,6 +973,262 @@ function confetti() {
     }
     if (t - t0 < 4500) requestAnimationFrame(step); else x.clearRect(0, 0, c.width, c.height);
   })(t0);
+}
+
+/* ================= fun extras (all opt-in) ================= */
+const FUN = [
+  { k: 'roofs',  e: '🏠', t: 'Rooftop detector', d: 'Walking over a house? Rooftop run! Roofs light up and get counted.' },
+  { k: 'powers', e: '🦸', t: 'Secret powers',     d: 'On rooftops your buddy floats, glows and sparkles.' },
+  { k: 'sounds', e: '🔊', t: 'Sounds',            d: 'Boing on roofs, footsteps, coin dings and a fanfare.' },
+  { k: 'coins',  e: '🪙', t: 'Collect coins',     d: 'Grab coins along the path. 💎 on rooftops are worth 5!' },
+];
+let funGroup = null, coinGroup = null, AC = null;
+const needsRoofs = () => F.roofs || F.powers || F.coins;
+
+function renderFunList() {
+  const el = $('#funList'); el.innerHTML = '';
+  for (const f of FUN) {
+    const b = document.createElement('button');
+    b.className = 'funRow' + (F[f.k] ? ' on' : '');
+    b.innerHTML = `<div class="fi">${f.e}</div><div class="ft"><b>${f.t}</b><span>${f.d}</span></div><div class="sw"></div>`;
+    b.onclick = () => {
+      F[f.k] = !F[f.k]; savePrefs(); b.classList.toggle('on', F[f.k]);
+      if (f.k === 'sounds' && F.sounds) { ensureAudio(); sfx('coin'); }
+      funApply();
+    };
+    el.appendChild(b);
+  }
+}
+function openFun() { renderFunList(); $('#funModal').classList.add('on'); }
+$('#funBtn').onclick = () => { pause(); openFun(); };
+$('#funFromPicker').onclick = openFun;
+$('#funDone').onclick = () => $('#funModal').classList.remove('on');
+
+/* --- per-trip setup --- */
+function funOpen(tr) {
+  if (!funGroup) { funGroup = L.layerGroup().addTo(map); coinGroup = L.layerGroup().addTo(map); }
+  funGroup.clearLayers(); coinGroup.clearLayers();
+  Object.assign(S, { wasRoof: false, lastStep: 0, lastSpark: 0, lastRoofToast: 0, roofsLoading: false });
+  P.roofAt = null; P.coins = null; P.lit = null;
+  if (tr.roofs && tr.roofs.v === 1) applyRoofs(tr.roofs);
+  funApply();
+}
+function funClose() { if (funGroup) { funGroup.clearLayers(); coinGroup.clearLayers(); } $('#funPill').classList.remove('show'); }
+function funApply() {
+  if (!P || !$('#player').classList.contains('on')) return;
+  if (needsRoofs() && !P.roofAt) ensureRoofs(cur);
+  if (F.coins && !P.coins) buildCoins();
+  if (!F.coins && P.coins) { coinGroup.clearLayers(); P.coins = null; }
+  if (!F.roofs && P.lit) { funGroup.clearLayers(); P.lit = null; }
+  if (!F.powers && heroEl) heroEl.classList.remove('power');
+  funRender(posAt(S.vt).i, 0, null, true);
+}
+
+/* --- house outlines from OpenStreetMap (Overpass API) --- */
+const OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
+async function fetchBuildings(tr) {
+  // thin the path to a point every ~15 m, at most ~1200 points
+  let pts = [], last = null;
+  for (const p of tr.pts) if (!last || haversine(last[1], last[2], p[1], p[2]) > 15) { pts.push(p); last = p; }
+  const step = Math.ceil(pts.length / 1200);
+  const coords = [];
+  for (let k = 0; k < pts.length; k += step) coords.push(pts[k][1].toFixed(5) + ',' + pts[k][2].toFixed(5));
+  const pl = tr.pts[tr.pts.length - 1];
+  coords.push(pl[1].toFixed(5) + ',' + pl[2].toFixed(5));
+  const r = step > 1 ? 35 : 25, c = coords.join(',');
+  const q = `[out:json][timeout:60];(way["building"](around:${r},${c});relation["building"](around:${r},${c}););out geom;`;
+  let lastErr;
+  for (const url of OVERPASS) {
+    try {
+      const res = await fetch(url, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const js = await res.json();
+      const rings = [];
+      for (const el of js.elements || []) {
+        if (el.type === 'way' && el.geometry) rings.push(el.geometry.map(g => [g.lat, g.lon]));
+        if (el.type === 'relation') for (const m of el.members || []) if (m.role === 'outer' && m.geometry) rings.push(m.geometry.map(g => [g.lat, g.lon]));
+      }
+      return rings.filter(r => r.length >= 3);
+    } catch (e) { lastErr = e; }
+  }
+  throw lastErr;
+}
+function inRing(lat, lon, ring) {
+  let inside = false;
+  for (let a = 0, b = ring.length - 1; a < ring.length; b = a++) {
+    const ya = ring[a][0], xa = ring[a][1], yb = ring[b][0], xb = ring[b][1];
+    if ((ya > lat) !== (yb > lat) && lon < (xb - xa) * (lat - ya) / (yb - ya) + xa) inside = !inside;
+  }
+  return inside;
+}
+// which house (if any) each GPS point is on; keep only visits of 2+ points so GPS flicker doesn't count
+function analyseRoofs(tr, rings) {
+  const G = 0.0005, grid = new Map();
+  rings.forEach((r, bi) => {
+    let a0 = 90, a1 = -90, o0 = 180, o1 = -180;
+    for (const [a, o] of r) { a0 = Math.min(a0, a); a1 = Math.max(a1, a); o0 = Math.min(o0, o); o1 = Math.max(o1, o); }
+    for (let gy = Math.floor(a0 / G); gy <= Math.floor(a1 / G); gy++)
+      for (let gx = Math.floor(o0 / G); gx <= Math.floor(o1 / G); gx++) {
+        const key = gy + ':' + gx; if (!grid.has(key)) grid.set(key, []); grid.get(key).push(bi);
+      }
+  });
+  const on = tr.pts.map(p => {
+    const cand = grid.get(Math.floor(p[1] / G) + ':' + Math.floor(p[2] / G)) || [];
+    for (const bi of cand) if (inRing(p[1], p[2], rings[bi])) return bi;
+    return -1;
+  });
+  const visits = [];
+  for (let i = 0; i < on.length;) {
+    let j = i; while (j + 1 < on.length && on[j + 1] === on[i]) j++;
+    if (on[i] >= 0 && j > i) visits.push([on[i], i, j]);
+    i = j + 1;
+  }
+  // keep only the houses actually visited, renumbered
+  const map = new Map(), bld = [];
+  for (const v of visits) {
+    if (!map.has(v[0])) { map.set(v[0], bld.length); bld.push(rings[v[0]].map(([a, o]) => [Math.round(a * 1e6) / 1e6, Math.round(o * 1e6) / 1e6])); }
+    v[0] = map.get(v[0]);
+  }
+  return { v: 1, bld, visits };
+}
+async function ensureRoofs(tr) {
+  if (S.roofsLoading || !tr) return;
+  S.roofsLoading = true;
+  toast('🔍 Looking for rooftops…');
+  try {
+    const rings = await fetchBuildings(tr);
+    tr.roofs = analyseRoofs(tr, rings);
+    saveTracks();
+    if (cur === tr && P) {
+      applyRoofs(tr.roofs);
+      if (F.coins) { coinGroup.clearLayers(); P.coins = null; buildCoins(); }
+      const n = tr.roofs.bld.length;
+      toast(n ? `🏠 ${n} rooftop${n > 1 ? 's' : ''} on this path!` : '🛣️ No rooftops on this path');
+      funRender(posAt(S.vt).i, 0, null, true);
+    }
+  } catch (e) {
+    console.warn(e);
+    if (cur === tr) toast('😕 No rooftops: no internet?');
+  }
+  S.roofsLoading = false;
+}
+function applyRoofs(R) {
+  P.roofAt = new Int32Array(P.n).fill(-1);
+  P.bldFirst = R.bld.map(() => Infinity);
+  for (const [b, s, e] of R.visits) {
+    for (let k = s; k <= e && k < P.n; k++) P.roofAt[k] = b;
+    P.bldFirst[b] = Math.min(P.bldFirst[b], s);
+  }
+  P.bldRings = R.bld;
+  P.lit = null;
+}
+function syncLit(i, animate) {
+  if (!P.lit) { P.lit = P.bldRings.map(() => null); funGroup.clearLayers(); }
+  let n = 0;
+  P.bldRings.forEach((ring, b) => {
+    const want = P.bldFirst[b] <= i;
+    if (want) n++;
+    if (want && !P.lit[b]) P.lit[b] = L.polygon(ring, { color: '#ff9f1c', weight: 2, fillColor: '#ffd23f', fillOpacity: .55, interactive: false, className: animate ? 'roofLit' : '' }).addTo(funGroup);
+    else if (!want && P.lit[b]) { funGroup.removeLayer(P.lit[b]); P.lit[b] = null; }
+  });
+  return n;
+}
+
+/* --- coins --- */
+function buildCoins() {
+  const spacing = Math.max(35, P.dist / 150);
+  P.coins = [];
+  let next = 25;
+  for (let i = 1; i < P.n - 1; i++) {
+    if (P.D[i] < next) continue;
+    next = P.D[i] + spacing;
+    const gem = !!(P.roofAt && P.roofAt[i] >= 0);
+    P.coins.push({ i, v: gem ? 5 : 1, gem, got: false, m: null });
+  }
+  for (const c of P.coins) addCoinMarker(c);
+}
+function addCoinMarker(c) {
+  c.m = L.marker([P.LA[c.i], P.LO[c.i]], { icon: L.divIcon({ className: 'heroIcon', html: `<div class="coin${c.gem ? ' gem' : ''}">${c.gem ? '💎' : '🪙'}</div>`, iconSize: [28, 28], iconAnchor: [14, 14] }), interactive: false, zIndexOffset: 500 }).addTo(coinGroup);
+}
+function syncCoins(i, live) {
+  let score = 0, got = 0;
+  for (const c of P.coins) {
+    const want = c.i <= i;
+    if (want && !c.got) {
+      c.got = true;
+      if (live && c.m) {
+        const el = c.m.getElement(), m = c.m; c.m = null;
+        if (el) el.firstChild.classList.add('pop');
+        setTimeout(() => coinGroup.removeLayer(m), 450);
+        sfx(c.gem ? 'gem' : 'coin');
+      } else if (c.m) { coinGroup.removeLayer(c.m); c.m = null; }
+    } else if (!want && c.got) { c.got = false; addCoinMarker(c); }
+    if (c.got) { score += c.v; got++; }
+  }
+  P.coinScore = score; P.coinGot = got;
+  return score;
+}
+
+/* --- per-frame --- */
+function funRender(i, spd, ll, silent) {
+  if (!P || !heroEl) return;
+  const live = S.playing && !silent;
+  const onRoof = !!(P.roofAt && P.roofAt[i] >= 0);
+  heroEl.classList.toggle('power', F.powers && onRoof);
+  heroEl.classList.toggle('roofhop', F.roofs && !F.powers && onRoof && S.playing);
+  const now = performance.now();
+  if (onRoof && !S.wasRoof && live) {
+    if (F.roofs && now - S.lastRoofToast > 2500) { S.lastRoofToast = now; toast('🏠 Rooftop run!'); }
+    if (F.roofs || F.powers) sfx('boing');
+  }
+  S.wasRoof = onRoof;
+  if (F.powers && onRoof && live && ll && now - S.lastSpark > 130) {
+    S.lastSpark = now;
+    const m = L.marker(ll, { icon: L.divIcon({ className: 'heroIcon', html: `<div class="spark">${['✨', '⭐', '💫'][Math.random() * 3 | 0]}</div>`, iconSize: [24, 24], iconAnchor: [12 + (Math.random() * 16 - 8), 30] }), interactive: false }).addTo(funGroup);
+    setTimeout(() => funGroup.removeLayer(m), 900);
+  }
+  if (F.sounds && live && spd > 1 && now - S.lastStep > 380) { S.lastStep = now; sfx('step'); }
+  const parts = [];
+  if (F.roofs && P.bldRings) parts.push('🏠 ' + syncLit(i, live));
+  if (F.coins && P.coins) parts.push('🪙 ' + syncCoins(i, live));
+  const pill = $('#funPill');
+  pill.classList.toggle('show', parts.length > 0);
+  pill.textContent = parts.join('  ·  ');
+}
+function funBadges(badges) {
+  if (F.roofs && P.bldRings) {
+    const n = P.bldRings.length;
+    badges.push(['🥷', `${n} roof${n === 1 ? '' : 's'}`, n ? 'Rooftop ninja!' : 'Stayed on the streets']);
+  }
+  if (F.coins && P.coins) badges.push(['🪙', `${P.coinScore || 0} points`, `${P.coinGot || 0} of ${P.coins.length} coins collected`]);
+}
+
+/* --- sounds (made in the browser, no files) --- */
+function ensureAudio() {
+  if (!F.sounds) return;
+  try {
+    if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)();
+    if (AC.state === 'suspended') AC.resume();
+  } catch (e) {}
+}
+function tone(f, t0, dur, type, vol, fEnd) {
+  const o = AC.createOscillator(), g = AC.createGain();
+  o.type = type; o.frequency.setValueAtTime(f, t0);
+  if (fEnd) o.frequency.exponentialRampToValueAtTime(fEnd, t0 + dur);
+  g.gain.setValueAtTime(vol, t0); g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+  o.connect(g); g.connect(AC.destination); o.start(t0); o.stop(t0 + dur + 0.02);
+}
+function sfx(name) {
+  if (!F.sounds || !AC || AC.state !== 'running') return;
+  const t = AC.currentTime;
+  try {
+    if (name === 'boing') { tone(160, t, .35, 'sine', .3, 560); tone(560, t + .12, .3, 'triangle', .08, 240); }
+    if (name === 'coin') { tone(988, t, .08, 'square', .05); tone(1319, t + .07, .25, 'square', .05); }
+    if (name === 'gem') [1047, 1319, 1568, 2093].forEach((f, k) => tone(f, t + k * .06, .22, 'triangle', .09));
+    if (name === 'step') tone(140 + Math.random() * 40, t, .07, 'triangle', .12, 60);
+    if (name === 'chime') { tone(784, t, .3, 'sine', .12); tone(1175, t + .1, .4, 'sine', .1); }
+    if (name === 'fanfare') [523, 659, 784, 1047].forEach((f, k) => tone(f, t + k * .14, k === 3 ? .7 : .2, 'triangle', .15));
+  } catch (e) {}
 }
 
 /* ================= start ================= */
