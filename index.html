@@ -597,13 +597,25 @@ function initMap() {
 function pinIcon(emoji, cls = '') { return L.divIcon({ className: 'heroIcon', html: `<div class="pin ${cls}">${emoji}</div>`, iconSize: [34, 34], iconAnchor: [17, 30] }); }
 
 function openTrack(tr) {
-  if (!initMap()) return;
+  if (!window.L) { homeToast('🌐 The map needs internet. Connect and reload the page.'); return; }
+  try { openTrackInner(tr); }
+  catch (e) {
+    console.error(e);
+    closePlayer();
+    homeToast('😕 Oops, this adventure could not start: ' + (e && e.message || e));
+  }
+}
+function openTrackInner(tr) {
   cur = tr; P = prepare(tr);
+  // show the player first so the map gets its real size
   $('#home').classList.remove('on'); $('#player').classList.add('on');
+  initMap();
   $('#trackTitle').textContent = tr.emoji + ' ' + tr.name;
   map.invalidateSize();
-  staticGroup.clearLayers();
   const all = []; for (let i = 0; i < P.n; i++) all.push([P.LA[i], P.LO[i]]);
+  // the map must have a view before markers get their HTML elements
+  map.fitBounds(L.latLngBounds(all), { padding: [70, 40], animate: false });
+  staticGroup.clearLayers();
   ghostLine = L.polyline(all, { color: '#1d2b4f', weight: 4, opacity: .45, dashArray: '2 9', lineCap: 'round' });
   if (S.ghost) ghostLine.addTo(staticGroup);
   L.marker(all[0], { icon: pinIcon('🏠'), interactive: false }).addTo(staticGroup);
@@ -613,7 +625,6 @@ function openTrack(tr) {
   hero = L.marker(all[0], { icon: L.divIcon({ className: 'heroIcon', html: '<div class="hero"><div class="shadow"></div><div class="bob"><div class="halo"></div><div class="emo"></div></div></div>', iconSize: [64, 64], iconAnchor: [32, 52] }), zIndexOffset: 1000, interactive: false }).addTo(map);
   heroEl = hero.getElement().querySelector('.hero');
   setBuddy(prefs.buddy);
-  map.fitBounds(L.latLngBounds(all), { padding: [70, 40] });
   // pick a replay speed so the whole trip takes about 2–3 minutes
   const want = P.vEnd / 150;
   S.mult = SPEEDS.reduce((b, s) => Math.abs(Math.log(s.m / want)) < Math.abs(Math.log(b.m / want)) ? s : b).m;
