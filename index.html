@@ -84,12 +84,17 @@ body.dragging .add{border-color:var(--pink);background:#fff0f5}
 
 /* hero marker */
 .heroIcon{background:none;border:0}
-.hero{position:relative;width:64px;height:64px}
-.hero .shadow{position:absolute;left:18px;right:18px;bottom:6px;height:10px;border-radius:50%;background:rgba(0,0,0,.25);filter:blur(1px)}
-.hero .halo{position:absolute;left:8px;top:6px;width:48px;height:48px;border-radius:50%;background:rgba(255,255,255,.85);box-shadow:0 0 0 4px rgba(123,92,255,.45)}
-.hero .emo{position:absolute;left:0;right:0;top:4px;text-align:center;font-size:40px;line-height:52px;transition:transform .25s}
-.hero.moving .bob{animation:bob .5s ease-in-out infinite}
-.hero .bob{position:absolute;inset:0}
+/* buddy pin: the tip (purple dot) sits exactly on the GPS position */
+.hero{position:relative;width:64px;height:84px}
+.hero .bob{position:absolute;inset:0;filter:drop-shadow(0 3px 3px rgba(0,0,0,.3))}
+.hero .head{position:absolute;left:4px;top:0;width:56px;height:56px;border-radius:50%;background:#fff;border:4px solid var(--purple);overflow:hidden}
+.hero .emo{position:absolute;inset:0;text-align:center;font-size:34px;line-height:48px;transition:transform .25s}
+.hero .tail{position:absolute;left:21px;top:51px;width:0;height:0;border-left:11px solid transparent;border-right:11px solid transparent;border-top:22px solid var(--purple)}
+.hero .dot{position:absolute;left:25px;top:71px;width:14px;height:14px;border-radius:50%;background:var(--pink);border:3px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.4)}
+.hero .ping{position:absolute;left:20px;top:66px;width:24px;height:24px;border-radius:50%;border:3px solid var(--pink);animation:ping 1.4s ease-out infinite}
+.hero.moving .head{animation:hop .5s ease-in-out infinite}
+@keyframes hop{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+@keyframes ping{from{transform:scale(.4);opacity:1}to{transform:scale(1.8);opacity:0}}
 .pin{font-size:30px;line-height:1;text-align:center;filter:drop-shadow(0 2px 2px rgba(0,0,0,.35))}
 .pin.star{animation:twinkle 1.6s ease-in-out infinite}
 
@@ -622,7 +627,7 @@ function openTrackInner(tr) {
   L.marker(all[all.length - 1], { icon: pinIcon('🏁'), interactive: false }).addTo(staticGroup);
   for (const i of P.POI) L.marker(all[i], { icon: pinIcon('⭐', 'star'), interactive: false }).addTo(staticGroup);
   if (hero) hero.remove();
-  hero = L.marker(all[0], { icon: L.divIcon({ className: 'heroIcon', html: '<div class="hero"><div class="shadow"></div><div class="bob"><div class="halo"></div><div class="emo"></div></div></div>', iconSize: [64, 64], iconAnchor: [32, 52] }), zIndexOffset: 1000, interactive: false }).addTo(map);
+  hero = L.marker(all[0], { icon: L.divIcon({ className: 'heroIcon', html: '<div class="hero"><div class="ping"></div><div class="bob"><div class="tail"></div><div class="head"><div class="emo"></div></div></div><div class="dot"></div></div>', iconSize: [64, 86], iconAnchor: [32, 78] }), zIndexOffset: 1000, interactive: false }).addTo(map);
   heroEl = hero.getElement().querySelector('.hero');
   setBuddy(prefs.buddy);
   // pick a replay speed so the whole trip takes about 2–3 minutes
