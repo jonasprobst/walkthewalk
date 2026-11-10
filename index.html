@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Adventure Replay</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+:root{--sky:#e9f5ff;--ink:#1d2b4f;--soft:#5b6a8f;--pink:#ff5d8f;--yellow:#ffd23f;--teal:#16c2b0;--purple:#7b5cff;--card:#fff;--line:#d6e4f5}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font-family:'Baloo 2',system-ui,-apple-system,'Segoe UI',sans-serif;color:var(--ink);background:var(--sky);-webkit-tap-highlight-color:transparent}
+button{font-family:inherit;color:inherit;cursor:pointer;border:0;background:none}
+.screen{display:none}
+.screen.on{display:block}
+
+/* ---------- HOME ---------- */
+#home{max-width:1100px;margin:0 auto;padding:24px 18px 60px}
+.brand{display:flex;align-items:center;gap:14px;margin-bottom:6px}
+.brand .logo{font-size:52px;line-height:1;animation:wiggle 3s ease-in-out infinite}
+.brand h1{margin:0;font-size:clamp(30px,6vw,46px);line-height:1;font-weight:800;letter-spacing:-.5px}
+.brand h1 span{color:var(--pink)}
+.sub{margin:0 0 22px;color:var(--soft);font-size:19px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:18px}
+.card{background:var(--card);border-radius:24px;padding:12px 12px 10px;box-shadow:0 6px 0 #cfe0f3,0 10px 24px rgba(40,80,140,.12);cursor:pointer;transition:transform .15s;position:relative}
+.card:hover{transform:translateY(-3px) rotate(-.4deg)}
+.card:active{transform:scale(.98)}
+.thumb{width:100%;height:140px;border-radius:18px;background:linear-gradient(160deg,#dff7ef,#e4efff);display:block}
+.card .row{display:flex;align-items:center;gap:8px;margin-top:8px}
+.card .emo{font-size:30px;line-height:1;padding:2px;border-radius:10px}
+.card .emo:hover{background:#f1f6ff}
+.card .name{font-weight:800;font-size:21px;line-height:1.1;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card input.name{border:2px solid var(--purple);border-radius:10px;padding:2px 8px;font:inherit;font-weight:800;font-size:19px}
+.card .meta{color:var(--soft);font-size:15.5px;margin-top:2px;display:flex;flex-wrap:wrap;gap:4px 12px}
+.card .tools{display:flex;gap:2px}
+.card .tools button{font-size:19px;width:38px;height:38px;border-radius:12px}
+.card .tools button:hover{background:#f1f6ff}
+.add{border:3px dashed #9fb8de;background:rgba(255,255,255,.55);box-shadow:none;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:240px;text-align:center;gap:4px}
+.add .plus{width:74px;height:74px;border-radius:50%;background:var(--yellow);font-size:46px;font-weight:800;display:grid;place-items:center;box-shadow:0 5px 0 #e0b400}
+.add b{font-size:22px;margin-top:8px}
+.add small{color:var(--soft);font-size:15px;max-width:220px}
+.add input{display:none}
+body.dragging .add{border-color:var(--pink);background:#fff0f5}
+.note{margin-top:26px;color:var(--soft);font-size:15px;background:rgba(255,255,255,.6);padding:10px 14px;border-radius:14px}
+
+/* ---------- PLAYER ---------- */
+#player.on{display:grid;position:fixed;inset:0;grid-template-columns:1fr 330px;grid-template-rows:1fr auto;grid-template-areas:"map side" "ctrl ctrl";background:var(--sky)}
+#mapWrap{grid-area:map;position:relative;min-height:0}
+#map{position:absolute;inset:0;background:#dfe9d8}
+#side{grid-area:side;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:12px}
+#ctrl{grid-area:ctrl;display:flex;align-items:center;gap:14px;padding:10px 16px calc(10px + env(safe-area-inset-bottom));background:#fff;box-shadow:0 -4px 18px rgba(40,80,140,.1);z-index:500}
+.topbar{position:absolute;top:10px;left:10px;right:10px;z-index:600;display:flex;gap:8px;align-items:flex-start;pointer-events:none}
+.topbar>*{pointer-events:auto}
+.pill{background:#fff;border-radius:18px;box-shadow:0 4px 0 #cfe0f3,0 6px 16px rgba(0,0,0,.12);height:50px;padding:0 14px;display:flex;align-items:center;gap:6px;font-weight:700;font-size:17px;white-space:nowrap}
+.pill.btn:active{transform:translateY(2px);box-shadow:0 2px 0 #cfe0f3}
+.pill.on{background:var(--purple);color:#fff;box-shadow:0 4px 0 #5338d6}
+#trackTitle{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;font-weight:800;font-size:19px;justify-content:center}
+.mapBtns{display:flex;gap:8px}
+.big{font-size:22px}
+
+.panel{background:#fff;border-radius:22px;padding:12px 14px;box-shadow:0 5px 0 #cfe0f3}
+.gaugeBox{text-align:center}
+.gaugeBox svg{width:100%;max-width:260px;display:block;margin:0 auto}
+#mood{font-weight:800;font-size:20px;margin-top:-4px}
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.tile{background:#fff;border-radius:18px;padding:8px 12px;box-shadow:0 4px 0 #cfe0f3}
+.tile .k{font-size:14px;color:var(--soft);font-weight:700;display:flex;gap:6px;align-items:center}
+.tile .v{font-size:25px;font-weight:800;line-height:1.15;font-variant-numeric:tabular-nums}
+.tile .v small{font-size:15px;font-weight:700;color:var(--soft)}
+#buddyBtn{width:100%;justify-content:center}
+
+#playBtn{width:66px;height:66px;flex:0 0 66px;border-radius:50%;background:var(--pink);color:#fff;font-size:30px;display:grid;place-items:center;box-shadow:0 5px 0 #d13b6c}
+#playBtn:active{transform:translateY(3px);box-shadow:0 2px 0 #d13b6c}
+.scrubWrap{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+#scrub{width:100%;height:62px;display:block;touch-action:none;cursor:pointer;border-radius:14px}
+.scrubInfo{display:flex;justify-content:space-between;font-size:14px;color:var(--soft);font-weight:700;font-variant-numeric:tabular-nums}
+.speeds{display:flex;gap:4px;background:#eef4fb;border-radius:18px;padding:4px}
+.speeds button{width:50px;height:50px;border-radius:14px;font-size:24px;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1}
+.speeds button small{font-size:11px;font-weight:700;color:var(--soft);margin-top:2px}
+.speeds button.on{background:#fff;box-shadow:0 3px 0 #cfe0f3}
+
+/* hero marker */
+.heroIcon{background:none;border:0}
+.hero{position:relative;width:64px;height:64px}
+.hero .shadow{position:absolute;left:18px;right:18px;bottom:6px;height:10px;border-radius:50%;background:rgba(0,0,0,.25);filter:blur(1px)}
+.hero .halo{position:absolute;left:8px;top:6px;width:48px;height:48px;border-radius:50%;background:rgba(255,255,255,.85);box-shadow:0 0 0 4px rgba(123,92,255,.45)}
+.hero .emo{position:absolute;left:0;right:0;top:4px;text-align:center;font-size:40px;line-height:52px;transition:transform .25s}
+.hero.moving .bob{animation:bob .5s ease-in-out infinite}
+.hero .bob{position:absolute;inset:0}
+.pin{font-size:30px;line-height:1;text-align:center;filter:drop-shadow(0 2px 2px rgba(0,0,0,.35))}
+.pin.star{animation:twinkle 1.6s ease-in-out infinite}
+
+#toast{position:absolute;left:50%;top:76px;transform:translate(-50%,-20px);background:var(--yellow);color:var(--ink);font-weight:800;font-size:22px;padding:8px 20px;border-radius:20px;box-shadow:0 5px 0 #e0b400;z-index:700;opacity:0;transition:.3s;pointer-events:none;white-space:nowrap}
+#toast.show{opacity:1;transform:translate(-50%,0)}
+
+/* modals */
+.modal{position:fixed;inset:0;background:rgba(29,43,79,.45);display:none;align-items:center;justify-content:center;z-index:2000;padding:16px}
+.modal.on{display:flex}
+.box{background:#fff;border-radius:28px;padding:22px;max-width:560px;width:100%;max-height:92vh;overflow:auto;box-shadow:0 8px 0 #cfe0f3;text-align:center;animation:pop .3s}
+.box h2{margin:0 0 4px;font-size:30px;line-height:1.1}
+.box p{margin:4px 0 14px;color:var(--soft);font-size:17px}
+.buddies{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:10px}
+.buddies button{background:#f3f7fd;border-radius:20px;padding:8px 4px 6px;font-size:46px;line-height:1.1;box-shadow:0 4px 0 #dbe6f4;transition:transform .1s}
+.buddies button small{display:block;font-size:15px;font-weight:700;color:var(--ink)}
+.buddies button:hover{transform:translateY(-2px) rotate(-3deg)}
+.buddies button.sel{background:#efeaff;box-shadow:0 4px 0 var(--purple)}
+.cta{background:var(--teal);color:#fff;font-weight:800;font-size:21px;padding:10px 26px;border-radius:18px;box-shadow:0 5px 0 #0e968a;margin:4px}
+.cta.alt{background:#eef4fb;color:var(--ink);box-shadow:0 5px 0 #cfe0f3}
+.cta.red{background:var(--pink);box-shadow:0 5px 0 #d13b6c}
+.cta:active{transform:translateY(3px)}
+.badges{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0 18px;text-align:left}
+.badge{background:#f6f9fe;border-radius:18px;padding:10px 12px;display:flex;gap:10px;align-items:center}
+.badge .i{font-size:36px}
+.badge b{display:block;font-size:22px;line-height:1.1}
+.badge span{font-size:14.5px;color:var(--soft);line-height:1.2;display:block}
+#confetti{position:fixed;inset:0;pointer-events:none;z-index:2500}
+#homeToast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 18px;border-radius:16px;font-size:17px;opacity:0;transition:.3s;z-index:3000;pointer-events:none;max-width:90vw;text-align:center}
+#homeToast.show{opacity:1}
+
+@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+@keyframes wiggle{0%,100%{transform:rotate(-6deg)}50%{transform:rotate(6deg)}}
+@keyframes twinkle{0%,100%{transform:scale(1)}50%{transform:scale(1.25)}}
+@keyframes pop{from{transform:scale(.85);opacity:0}to{transform:scale(1);opacity:1}}
+
+.leaflet-control-attribution{font-size:11px}
+
+/* ---------- narrow screens (phones, portrait tablets) ---------- */
+@media (max-width:820px){
+  #player.on{grid-template-columns:1fr;grid-template-rows:1fr auto auto;grid-template-areas:"map" "side" "ctrl"}
+  #side{flex-direction:row;padding:8px 10px;gap:8px;overflow:visible}
+  .gaugeBox{flex:0 0 132px;padding:6px 6px 4px;display:flex;flex-direction:column;justify-content:center}
+  #mood{font-size:15px;margin-top:2px}
+  .tiles{flex:1;gap:6px}
+  .tile{padding:4px 10px}
+  .tile .k{font-size:12.5px}
+  .tile .v{font-size:20px}
+  #buddyBtn{display:none}
+  #ctrl{flex-wrap:wrap;gap:8px 12px;padding:8px 10px calc(8px + env(safe-area-inset-bottom))}
+  #playBtn{width:58px;height:58px;flex-basis:58px;font-size:26px}
+  .scrubWrap{flex:1 1 calc(100% - 80px)}
+  .speeds{flex:1 1 100%;justify-content:space-between}
+  .speeds button{flex:1;height:44px}
+  #scrub{height:52px}
+  .mapBtns .lbl{display:none}
+  #trackTitle{font-size:16px}
+  .pill{height:46px;padding:0 12px}
+}
+@media (max-width:420px){ .gaugeBox{flex-basis:112px} .badges{grid-template-columns:1fr} }
+</style>
+</head>
+<body>
+
+<!-- ============ HOME ============ -->
+<section id="home" class="screen on">
+  <div class="brand"><div class="logo">🗺️</div><h1>Adventure <span>Replay</span></h1></div>
+  <p class="sub">Pick an adventure and watch it happen again!</p>
+  <div class="grid" id="grid"></div>
+  <div class="note" id="note">
+    💾 Adventures are saved in this browser on this device. Add new ones with the yellow <b>+</b> (choose the .CSV files from the GPS tracker, or drag them here). GPX files work too.
+  </div>
+</section>
+
+<!-- ============ PLAYER ============ -->
+<section id="player" class="screen">
+  <div id="mapWrap">
+    <div id="map"></div>
+    <div class="topbar">
+      <button class="pill btn big" id="backBtn" title="Back to all adventures">⬅️</button>
+      <div class="pill" id="trackTitle"></div>
+      <div class="mapBtns">
+        <button class="pill btn" id="followBtn" title="Camera follows your buddy">🎥 <span class="lbl">Follow</span></button>
+        <button class="pill btn" id="ghostBtn" title="Show the whole path">👀 <span class="lbl">Whole path</span></button>
+      </div>
+    </div>
+    <div id="toast"></div>
+  </div>
+
+  <aside id="side">
+    <div class="panel gaugeBox">
+      <svg viewBox="0 0 200 128" id="gauge" aria-label="Speedometer">
+        <g id="gaugeArcs"></g>
+        <g id="gaugeTicks" font-size="11" font-weight="700" fill="#5b6a8f" text-anchor="middle"></g>
+        <line id="needle" x1="100" y1="100" x2="100" y2="34" stroke="#1d2b4f" stroke-width="5" stroke-linecap="round" style="transition:transform .15s linear;transform-origin:100px 100px"/>
+        <circle cx="100" cy="100" r="9" fill="#1d2b4f"/>
+        <text x="100" y="126" text-anchor="middle" font-size="22" font-weight="800" fill="#1d2b4f"><tspan id="spdNum">0</tspan><tspan font-size="13" fill="#5b6a8f"> km/h</tspan></text>
+      </svg>
+      <div id="mood">🐌 Resting</div>
+    </div>
+    <div class="tiles">
+      <div class="tile"><div class="k">📏 Distance</div><div class="v" id="stDist">0 <small>m</small></div></div>
+      <div class="tile"><div class="k">🕐 Clock</div><div class="v" id="stClock">--:--</div></div>
+      <div class="tile"><div class="k">⛰️ Height</div><div class="v" id="stAlt">– <small>m</small></div></div>
+      <div class="tile"><div class="k">⚡ Fastest</div><div class="v" id="stTop">0 <small>km/h</small></div></div>
+    </div>
+    <button class="pill btn" id="buddyBtn">🔄 Change buddy</button>
+  </aside>
+
+  <div id="ctrl">
+    <button id="playBtn" title="Play / pause (space)">▶</button>
+    <div class="scrubWrap">
+      <canvas id="scrub"></canvas>
+      <div class="scrubInfo"><span id="elapsed">0:00</span><span id="climbInfo"></span><span id="total">0:00</span></div>
+    </div>
+    <div class="speeds" id="speeds"></div>
+  </div>
+</section>
+
+<!-- buddy picker -->
+<div class="modal" id="buddyModal">
+  <div class="box">
+    <h2>Who's coming along?</h2>
+    <p>Pick a buddy to walk the path!</p>
+    <div class="buddies" id="buddies"></div>
+  </div>
+</div>
+
+<!-- finish -->
+<div class="modal" id="endModal">
+  <div class="box">
+    <h2>🎉 Adventure complete!</h2>
+    <p id="endSub"></p>
+    <div class="badges" id="badges"></div>
+    <button class="cta" id="againBtn">🔁 Watch again</button>
+    <button class="cta alt" id="otherBtn">🗺️ Pick another</button>
+  </div>
+</div>
+
+<!-- confirm -->
+<div class="modal" id="confirmModal">
+  <div class="box">
+    <h2 id="confirmText">Sure?</h2>
+    <p>This can't be undone.</p>
+    <button class="cta red" id="confirmYes">Yes, delete</button>
+    <button class="cta alt" id="confirmNo">Keep it</button>
+  </div>
+</div>
+
+<canvas id="confetti"></canvas>
+<div id="homeToast"></div>
+
+<script type="text/plain" id="sampleData"></script>
+
+<script>
+"use strict";
+/* ================= helpers ================= */
+const $ = s => document.querySelector(s);
+const STORE = 'adventureReplay.tracks.v1';
+const PREF = 'adventureReplay.prefs.v1';
+const R = 6371000;
+const toRad = d => d * Math.PI / 180;
+function haversine(a1, o1, a2, o2) {
+  const dA = toRad(a2 - a1), dO = toRad(o2 - o1);
+  const h = Math.sin(dA / 2) ** 2 + Math.cos(toRad(a1)) * Math.cos(toRad(a2)) * Math.sin(dO / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+function bearing(a1, o1, a2, o2) {
+  const y = Math.sin(toRad(o2 - o1)) * Math.cos(toRad(a2));
+  const x = Math.cos(toRad(a1)) * Math.sin(toRad(a2)) - Math.sin(toRad(a1)) * Math.cos(toRad(a2)) * Math.cos(toRad(o2 - o1));
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function fmtDur(sec) {
+  sec = Math.max(0, Math.round(sec));
+  const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
+  return h ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`;
+}
+function fmtDurWords(sec) {
+  const h = Math.floor(sec / 3600), m = Math.round(sec % 3600 / 60);
+  return h ? `${h} h ${m} min` : `${m} min`;
+}
+function fmtDist(m) { return m < 1000 ? { v: Math.round(m), u: 'm' } : { v: (m / 1000).toFixed(m < 10000 ? 2 : 1), u: 'km' }; }
+const fmtClock = ms => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+const fmtDate = ms => new Date(ms).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+
+let prefs = { buddy: 0 };
+try { prefs = Object.assign(prefs, JSON.parse(localStorage.getItem(PREF) || '{}')); } catch (e) {}
+function savePrefs() { try { localStorage.setItem(PREF, JSON.stringify(prefs)); } catch (e) {} }
+
+/* ================= parsing ================= */
+function parseCoord(s) {
+  s = (s || '').trim();
+  const m = s.match(/^([+-]?\d+(?:\.\d+)?)\s*([NSEW])?$/i);
+  if (!m) return NaN;
+  let v = parseFloat(m[1]);
+  if (m[2] && /[SW]/i.test(m[2])) v = -v;
+  return v;
+}
+function parseDateStr(d) {
+  // returns [y, m, d] or null. Accepts YYMMDD, YYYYMMDD, YYYY-MM-DD, DD.MM.YYYY
+  d = (d || '').trim();
+  let m;
+  if ((m = d.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/))) return [+m[1], +m[2], +m[3]];
+  if ((m = d.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/))) return [+m[3], +m[2], +m[1]];
+  const g = d.replace(/\D/g, '');
+  if (g.length === 6) return [2000 + +g.slice(0, 2), +g.slice(2, 4), +g.slice(4, 6)];
+  if (g.length === 8) return [+g.slice(0, 4), +g.slice(4, 6), +g.slice(6, 8)];
+  return null;
+}
+function parseCSV(text) {
+  const lines = text.split(/\r?\n/);
+  let h = null, out = [], curDate = null, prevT = null, dayAdd = 0;
+  for (const raw of lines) {
+    const line = raw.replace(/\0/g, '').trim();
+    if (!line || line[0] === '#') continue;
+    const c = line.split(/[,;]/).map(x => x.trim());
+    if (!h) {
+      const low = c.map(x => x.toLowerCase());
+      const fi = f => low.findIndex(f);
+      if (fi(x => x.startsWith('lat')) >= 0 && fi(x => x.startsWith('lon')) >= 0) {
+        h = { tag: fi(x => x === 'tag'), date: fi(x => x.startsWith('date')), time: fi(x => x.startsWith('time')),
+              lat: fi(x => x.startsWith('lat')), lon: fi(x => x.startsWith('lon')),
+              alt: fi(x => /^(alt|height|ele)/.test(x)), spd: fi(x => x.startsWith('speed')) };
+      }
+      continue;
+    }
+    const lat = parseCoord(c[h.lat]), lon = parseCoord(c[h.lon]);
+    if (!isFinite(lat) || !isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180 || (lat === 0 && lon === 0)) continue;
+    const ds = h.date >= 0 ? c[h.date] : '';
+    if (ds) { const pd = parseDateStr(ds); if (pd && (!curDate || pd.join() !== curDate.join())) { curDate = pd; dayAdd = 0; } }
+    if (!curDate || h.time < 0) continue;
+    const tm = (c[h.time] || '').replace(/[^\d.]/g, '');
+    if (tm.length < 6) continue;
+    let t = Date.UTC(curDate[0], curDate[1] - 1, curDate[2], +tm.slice(0, 2), +tm.slice(2, 4), parseFloat(tm.slice(4))) + dayAdd * 864e5;
+    if (!ds && prevT !== null && t < prevT - 12 * 3600e3) { dayAdd++; t += 864e5; }
+    prevT = t;
+    const tag = h.tag >= 0 ? (c[h.tag] || '').toUpperCase() : '';
+    const alt = h.alt >= 0 ? parseFloat(c[h.alt]) : NaN;
+    const spd = h.spd >= 0 ? parseFloat(c[h.spd]) : NaN;
+    out.push({ t, lat, lon, alt: isFinite(alt) ? alt : null, spd: isFinite(spd) ? spd : null, poi: tag && tag !== 'T' ? 1 : 0 });
+  }
+  if (!h) throw new Error('No latitude/longitude columns found');
+  return out;
+}
+function parseGPX(text) {
+  const doc = new DOMParser().parseFromString(text, 'application/xml');
+  const pts = [...doc.getElementsByTagName('trkpt')].concat([...doc.getElementsByTagName('rtept')]);
+  const out = [];
+  for (const p of pts) {
+    const lat = parseFloat(p.getAttribute('lat')), lon = parseFloat(p.getAttribute('lon'));
+    const tEl = p.getElementsByTagName('time')[0], eEl = p.getElementsByTagName('ele')[0];
+    const t = tEl ? Date.parse(tEl.textContent) : NaN;
+    if (!isFinite(lat) || !isFinite(lon) || !isFinite(t)) continue;
+    const alt = eEl ? parseFloat(eEl.textContent) : NaN;
+    out.push({ t, lat, lon, alt: isFinite(alt) ? alt : null, spd: null, poi: 0 });
+  }
+  return out;
+}
+function parseTrack(text) {
+  let raw = /<gpx[\s>]/i.test(text.slice(0, 3000)) ? parseGPX(text) : parseCSV(text);
+  raw.sort((a, b) => a.t - b.t);
+  const pts = [];
+  for (const p of raw) if (!pts.length || p.t > pts[pts.length - 1].t) pts.push(p);
+  if (pts.length < 2) throw new Error('Not enough points with times');
+  const start = pts[0].t;
+  // missing speeds -> compute from positions (km/h)
+  for (let i = 0; i < pts.length; i++) {
+    if (pts[i].spd === null) {
+      const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
+      const dt = (b.t - a.t) / 1000;
+      pts[i].spd = dt > 0 ? haversine(a.lat, a.lon, b.lat, b.lon) / dt * 3.6 : 0;
+    }
+  }
+  const r6 = v => Math.round(v * 1e6) / 1e6, r1 = v => Math.round(v * 10) / 10;
+  return {
+    start,
+    pts: pts.map(p => [Math.round((p.t - start) / 100) / 10, r6(p.lat), r6(p.lon), p.alt === null ? null : r1(p.alt), r1(p.spd), p.poi])
+  };
+}
+
+/* ================= derived data for playback ================= */
+function smooth(arr, w) {
+  const n = arr.length, out = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    let s = 0, c = 0;
+    for (let k = Math.max(0, i - w); k <= Math.min(n - 1, i + w); k++) if (arr[k] !== null && isFinite(arr[k])) { s += arr[k]; c++; }
+    out[i] = c ? s / c : NaN;
+  }
+  return out;
+}
+function median5(arr) {
+  const n = arr.length, out = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const win = [];
+    for (let k = Math.max(0, i - 2); k <= Math.min(n - 1, i + 2); k++) win.push(arr[k]);
+    win.sort((a, b) => a - b); out[i] = win[win.length >> 1];
+  }
+  return out;
+}
+function prepare(tr) {
+  const p = tr.pts, n = p.length;
+  const P = { n, start: tr.start, T: new Float64Array(n), VT: new Float64Array(n), LA: new Float64Array(n), LO: new Float64Array(n),
+              D: new Float64Array(n), POI: [], hasAlt: p.some(q => q[3] !== null) };
+  for (let i = 0; i < n; i++) {
+    P.T[i] = p[i][0]; P.LA[i] = p[i][1]; P.LO[i] = p[i][2];
+    if (p[i][5]) P.POI.push(i);
+    // virtual time: long gaps (tracker off / no fix) are shortened to 8 s so replay doesn't freeze
+    P.VT[i] = i ? P.VT[i - 1] + Math.min(P.T[i] - P.T[i - 1], 8) : 0;
+  }
+  P.SP = smooth(median5(p.map(q => q[4])), 3);
+  const rawAlt = p.map(q => q[3]);
+  P.AL = smooth(rawAlt, 8);
+  const ALc = smooth(rawAlt, 50); // GPS height is noisy: heavy smoothing for the "climbed" total
+  // distance: count only real movement (ignores GPS wobble while standing still)
+  let cum = 0, ai = 0;
+  for (let i = 1; i < n; i++) {
+    const d = haversine(P.LA[ai], P.LO[ai], P.LA[i], P.LO[i]);
+    if (d >= 5) { cum += d; ai = i; }
+    P.D[i] = cum;
+  }
+  P.dist = cum;
+  // climb with 8 m hysteresis
+  let climb = 0, ref = null;
+  if (P.hasAlt) for (let i = 0; i < n; i++) {
+    const a = ALc[i]; if (!isFinite(a)) continue;
+    if (ref === null) ref = a;
+    if (a - ref >= 8) { climb += a - ref; ref = a; } else if (a < ref) ref = a;
+  }
+  P.climb = climb;
+  const sp = [...P.SP].filter(isFinite).sort((a, b) => a - b);
+  P.p98 = sp[Math.floor(sp.length * .98)] || 0;
+  P.topAt = new Float64Array(n);
+  for (let i = 0; i < n; i++) P.topAt[i] = Math.max(i ? P.topAt[i - 1] : 0, isFinite(P.SP[i]) ? P.SP[i] : 0);
+  P.duration = P.T[n - 1];
+  P.vEnd = P.VT[n - 1];
+  P.altMin = Infinity; P.altMax = -Infinity;
+  for (const a of P.AL) if (isFinite(a)) { P.altMin = Math.min(P.altMin, a); P.altMax = Math.max(P.altMax, a); }
+  return P;
+}
+function trackSummary(tr) {
+  const p = tr.pts;
+  let cum = 0, ai = 0;
+  for (let i = 1; i < p.length; i++) { const d = haversine(p[ai][1], p[ai][2], p[i][1], p[i][2]); if (d >= 5) { cum += d; ai = i; } }
+  return { dist: cum, dur: p[p.length - 1][0] };
+}
+
+/* ================= storage ================= */
+let tracks = [], storageOK = true;
+function loadTracks() {
+  let s = null;
+  try { s = localStorage.getItem(STORE); } catch (e) { storageOK = false; }
+  if (s) { try { tracks = JSON.parse(s); } catch (e) { tracks = []; } return; }
+  // first visit: add the sample walk (only if this copy has one built in)
+  if ($('#sampleData').textContent.trim().length > 20) try { addTrack(parseTrack($('#sampleData').textContent), { name: 'Night walk' }); } catch (e) { console.error(e); }
+}
+function saveTracks() {
+  if (!storageOK) return;
+  try { localStorage.setItem(STORE, JSON.stringify(tracks)); }
+  catch (e) { homeToast('⚠️ This browser is full – the newest adventure works now but may not be remembered.'); }
+}
+function autoEmoji(ms) {
+  const d = new Date(ms), m = d.getMonth() + 1, day = d.getDate();
+  if (m === 10 && day >= 28 || m === 11 && day === 1) return '🎃';
+  if (m === 12 && day >= 20) return '🎄';
+  if (m === 12 || m <= 2) return '⛄';
+  if (m >= 6 && m <= 8) return '☀️';
+  if (m >= 9 && m <= 11) return '🍂';
+  return '🌷';
+}
+function addTrack(parsed, opts = {}) {
+  const tr = { id: 't' + parsed.start + '_' + parsed.pts.length, start: parsed.start, pts: parsed.pts,
+               name: opts.name || ('Adventure – ' + fmtDate(parsed.start)), emoji: autoEmoji(parsed.start) };
+  if (tracks.some(t => t.id === tr.id)) return false;
+  tracks.push(tr);
+  tracks.sort((a, b) => b.start - a.start);
+  saveTracks();
+  return true;
+}
+
+/* ================= home screen ================= */
+const EMOJIS = ['🎃','🍂','🌷','☀️','⛄','🎄','🏞️','🌲','🏖️','🏔️','🚴','🚗','🦕','🍦','🏰','⚽','🌈','🐾'];
+function thumbSVG(tr) {
+  const p = tr.pts, step = Math.max(1, Math.floor(p.length / 300));
+  let a0 = Infinity, a1 = -Infinity, o0 = Infinity, o1 = -Infinity;
+  for (const q of p) { a0 = Math.min(a0, q[1]); a1 = Math.max(a1, q[1]); o0 = Math.min(o0, q[2]); o1 = Math.max(o1, q[2]); }
+  const k = Math.cos(toRad((a0 + a1) / 2));
+  const W = 240, H = 140, pad = 16;
+  const sx = (o1 - o0) * k || 1e-6, sy = (a1 - a0) || 1e-6;
+  const sc = Math.min((W - 2 * pad) / sx, (H - 2 * pad) / sy);
+  const ox = (W - sx * sc) / 2, oy = (H - sy * sc) / 2;
+  const X = q => (ox + (q[2] - o0) * k * sc).toFixed(1), Y = q => (H - oy - (q[1] - a0) * sc).toFixed(1);
+  let d = '';
+  for (let i = 0; i < p.length; i += step) d += (d ? 'L' : 'M') + X(p[i]) + ' ' + Y(p[i]);
+  d += 'L' + X(p[p.length - 1]) + ' ' + Y(p[p.length - 1]);
+  const s = p[0], e = p[p.length - 1], gid = 'g' + tr.id;
+  return `<svg class="thumb" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
+    <defs><linearGradient id="${gid}" x1="0" x2="1"><stop offset="0" stop-color="#ff5d8f"/><stop offset=".35" stop-color="#ffb000"/><stop offset=".65" stop-color="#16c2b0"/><stop offset="1" stop-color="#7b5cff"/></linearGradient></defs>
+    <path d="${d}" fill="none" stroke="#fff" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="${d}" fill="none" stroke="url(#${gid})" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="${X(s)}" cy="${Y(s)}" r="6" fill="#16c2b0" stroke="#fff" stroke-width="2.5"/>
+    <circle cx="${X(e)}" cy="${Y(e)}" r="6" fill="#ff5d8f" stroke="#fff" stroke-width="2.5"/></svg>`;
+}
+function renderHome() {
+  const g = $('#grid');
+  g.innerHTML = '';
+  const add = document.createElement('label');
+  add.className = 'card add';
+  add.innerHTML = `<div class="plus">+</div><b>Add adventure</b><small>Choose files from the GPS tracker, or drop them here</small><input type="file" id="fileIn" accept=".csv,.CSV,.gpx,.txt" multiple>`;
+  g.appendChild(add);
+  add.querySelector('input').addEventListener('change', e => { handleFiles(e.target.files); e.target.value = ''; });
+  for (const tr of tracks) {
+    const s = trackSummary(tr), dd = fmtDist(s.dist);
+    const c = document.createElement('div');
+    c.className = 'card';
+    c.innerHTML = thumbSVG(tr) +
+      `<div class="row"><button class="emo" title="Change picture">${tr.emoji}</button><div class="name">${esc(tr.name)}</div>
+       <div class="tools"><button data-a="ren" title="Rename">✏️</button><button data-a="del" title="Delete">🗑️</button></div></div>
+       <div class="meta"><span>📅 ${fmtDate(tr.start)}</span><span>⏱️ ${fmtDurWords(s.dur)}</span><span>📏 ${dd.v} ${dd.u}</span></div>`;
+    c.addEventListener('click', () => openTrack(tr));
+    c.querySelector('.emo').addEventListener('click', e => {
+      e.stopPropagation();
+      tr.emoji = EMOJIS[(EMOJIS.indexOf(tr.emoji) + 1) % EMOJIS.length];
+      e.target.textContent = tr.emoji; saveTracks();
+    });
+    c.querySelector('[data-a=ren]').addEventListener('click', e => { e.stopPropagation(); startRename(c, tr); });
+    c.querySelector('[data-a=del]').addEventListener('click', e => {
+      e.stopPropagation();
+      confirmBox(`Delete “${tr.name}”?`, () => { tracks = tracks.filter(t => t !== tr); saveTracks(); renderHome(); });
+    });
+    g.appendChild(c);
+  }
+  if (!tracks.length) add.querySelector('b').textContent = 'Add your first adventure!';
+  if (!storageOK) $('#note').innerHTML = '⚠️ This browser won\'t let the page save, so added adventures will be forgotten when you close it.';
+}
+function startRename(card, tr) {
+  const nm = card.querySelector('.name');
+  const inp = document.createElement('input');
+  inp.className = 'name'; inp.value = tr.name; inp.maxLength = 60;
+  nm.replaceWith(inp); inp.focus(); inp.select();
+  inp.addEventListener('click', e => e.stopPropagation());
+  const done = () => { tr.name = inp.value.trim() || tr.name; saveTracks(); renderHome(); };
+  inp.addEventListener('blur', done);
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') inp.blur(); if (e.key === 'Escape') { inp.value = tr.name; inp.blur(); } });
+}
+async function handleFiles(fileList) {
+  const files = [...fileList]; // copy: the input gets cleared right after
+  let ok = 0, dup = 0, bad = [];
+  for (const f of files) {
+    try {
+      const parsed = parseTrack(await f.text());
+      if (addTrack(parsed)) ok++; else dup++;
+    } catch (e) { bad.push(f.name); console.warn(f.name, e); }
+  }
+  renderHome();
+  const msg = [];
+  if (ok) msg.push(`🎉 Added ${ok} adventure${ok > 1 ? 's' : ''}!`);
+  if (dup) msg.push(`${dup} already here`);
+  if (bad.length) msg.push(`😕 Couldn't read ${bad.join(', ')}`);
+  if (msg.length) homeToast(msg.join(' · '));
+}
+let htT;
+function homeToast(t) { const el = $('#homeToast'); el.textContent = t; el.classList.add('show'); clearTimeout(htT); htT = setTimeout(() => el.classList.remove('show'), 3800); }
+function confirmBox(text, yes) {
+  $('#confirmText').textContent = text;
+  $('#confirmModal').classList.add('on');
+  $('#confirmYes').onclick = () => { $('#confirmModal').classList.remove('on'); yes(); };
+  $('#confirmNo').onclick = () => $('#confirmModal').classList.remove('on');
+}
+document.addEventListener('dragover', e => { e.preventDefault(); if ($('#home').classList.contains('on')) document.body.classList.add('dragging'); });
+document.addEventListener('dragleave', e => { if (!e.relatedTarget) document.body.classList.remove('dragging'); });
+document.addEventListener('drop', e => {
+  e.preventDefault(); document.body.classList.remove('dragging');
+  if ($('#home').classList.contains('on') && e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
+});
+
+/* ================= player ================= */
+// mode: flip = mirror when heading east (emoji faces left), rot = rotate with offset, none = upright
+const BUDDIES = [
+  { e: '🐕', n: 'Doggo', m: 'flip' }, { e: '🐈', n: 'Kitty', m: 'flip' }, { e: '🦖', n: 'T-Rex', m: 'flip' },
+  { e: '🦄', n: 'Unicorn', m: 'flip' }, { e: '🐢', n: 'Turtle', m: 'flip' }, { e: '🦆', n: 'Duck', m: 'flip' },
+  { e: '🐎', n: 'Horse', m: 'flip' }, { e: '🐉', n: 'Dragon', m: 'flip' }, { e: '🚗', n: 'Car', m: 'flip' },
+  { e: '🚀', n: 'Rocket', m: 'rot', o: -45 }, { e: '🛸', n: 'UFO', m: 'none' }, { e: '🐧', n: 'Penguin', m: 'none' },
+];
+const SPEEDS = [ { e: '🐌', m: 5 }, { e: '🐢', m: 15 }, { e: '🐇', m: 40 }, { e: '🐆', m: 100 }, { e: '🚀', m: 300 } ];
+
+let map, trailGroup, staticGroup, ghostLine, hero, heroEl, tip;
+let P = null, cur = null;
+const S = { vt: 0, playing: false, mult: 40, follow: true, ghost: true, idx: -1, chunk: null, chunkCount: 0, chunkNo: 0,
+            lastBear: 90, lastKm: 0, lastPoi: -1, lastUi: 0, lastTs: 0, ended: false };
+const CHUNK = 30;
+
+function initMap() {
+  if (map) return true;
+  if (!window.L) { homeToast('🌐 The map needs internet. Connect and reload the page.'); return false; }
+  map = L.map('map', { zoomControl: false, attributionControl: true });
+  L.control.zoom({ position: 'bottomright' }).addTo(map);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+  }).addTo(map);
+  staticGroup = L.layerGroup().addTo(map);
+  trailGroup = L.layerGroup().addTo(map);
+  map.on('dragstart', () => setFollow(false));
+  return true;
+}
+function pinIcon(emoji, cls = '') { return L.divIcon({ className: 'heroIcon', html: `<div class="pin ${cls}">${emoji}</div>`, iconSize: [34, 34], iconAnchor: [17, 30] }); }
+
+function openTrack(tr) {
+  if (!initMap()) return;
+  cur = tr; P = prepare(tr);
+  $('#home').classList.remove('on'); $('#player').classList.add('on');
+  $('#trackTitle').textContent = tr.emoji + ' ' + tr.name;
+  map.invalidateSize();
+  staticGroup.clearLayers();
+  const all = []; for (let i = 0; i < P.n; i++) all.push([P.LA[i], P.LO[i]]);
+  ghostLine = L.polyline(all, { color: '#1d2b4f', weight: 4, opacity: .45, dashArray: '2 9', lineCap: 'round' });
+  if (S.ghost) ghostLine.addTo(staticGroup);
+  L.marker(all[0], { icon: pinIcon('🏠'), interactive: false }).addTo(staticGroup);
+  L.marker(all[all.length - 1], { icon: pinIcon('🏁'), interactive: false }).addTo(staticGroup);
+  for (const i of P.POI) L.marker(all[i], { icon: pinIcon('⭐', 'star'), interactive: false }).addTo(staticGroup);
+  if (hero) hero.remove();
+  hero = L.marker(all[0], { icon: L.divIcon({ className: 'heroIcon', html: '<div class="hero"><div class="shadow"></div><div class="bob"><div class="halo"></div><div class="emo"></div></div></div>', iconSize: [64, 64], iconAnchor: [32, 52] }), zIndexOffset: 1000, interactive: false }).addTo(map);
+  heroEl = hero.getElement().querySelector('.hero');
+  setBuddy(prefs.buddy);
+  map.fitBounds(L.latLngBounds(all), { padding: [70, 40] });
+  // pick a replay speed so the whole trip takes about 2–3 minutes
+  const want = P.vEnd / 150;
+  S.mult = SPEEDS.reduce((b, s) => Math.abs(Math.log(s.m / want)) < Math.abs(Math.log(b.m / want)) ? s : b).m;
+  renderSpeeds(); buildGauge();
+  S.playing = false; S.ended = false; S.lastBear = 90; resetTrail();
+  seek(0);
+  $('#total').textContent = fmtDur(P.duration);
+  $('#climbInfo').textContent = P.hasAlt ? `⛰️ ${Math.round(P.altMin)}–${Math.round(P.altMax)} m` : '';
+  sizeScrub();
+  updatePlayBtn();
+  openBuddyPicker();
+}
+function closePlayer() {
+  S.playing = false; updatePlayBtn();
+  $('#player').classList.remove('on'); $('#home').classList.add('on');
+  $('#endModal').classList.remove('on');
+  renderHome();
+}
+
+/* --- buddy --- */
+function openBuddyPicker() {
+  const b = $('#buddies'); b.innerHTML = '';
+  BUDDIES.forEach((x, i) => {
+    const btn = document.createElement('button');
+    btn.innerHTML = `${x.e}<small>${x.n}</small>`;
+    if (i === prefs.buddy) btn.className = 'sel';
+    btn.onclick = () => { setBuddy(i); prefs.buddy = i; savePrefs(); $('#buddyModal').classList.remove('on'); if (!S.ended) play(true); };
+    b.appendChild(btn);
+  });
+  $('#buddyModal').classList.add('on');
+  S.playing = false; updatePlayBtn();
+}
+function setBuddy(i) {
+  S.buddy = BUDDIES[i] || BUDDIES[0];
+  heroEl.querySelector('.emo').textContent = S.buddy.e;
+  orientHero(S.lastBear);
+}
+function orientHero(b) {
+  const el = heroEl.querySelector('.emo'), bd = S.buddy;
+  if (bd.m === 'flip') el.style.transform = (b > 0 && b < 180) ? 'scaleX(-1)' : '';
+  else if (bd.m === 'rot') el.style.transform = `rotate(${b + bd.o}deg)`;
+  else el.style.transform = '';
+}
+
+/* --- trail --- */
+function hue(n) { return `hsl(${(n * 28) % 360},95%,52%)`; }
+function resetTrail() {
+  trailGroup.clearLayers(); S.chunk = null; S.chunkCount = 0; S.chunkNo = 0; S.idx = -1;
+  tip = L.polyline([], { color: hue(0), weight: 7, lineCap: 'round' }).addTo(trailGroup);
+}
+function rebuildTrail(to) {
+  resetTrail();
+  let arr = [];
+  for (let k = 0; k <= to; k++) {
+    arr.push([P.LA[k], P.LO[k]]);
+    if (arr.length > CHUNK) { L.polyline(arr, trailStyle(S.chunkNo++)).addTo(trailGroup); arr = [arr[arr.length - 1]]; }
+  }
+  S.chunk = L.polyline(arr, trailStyle(S.chunkNo)).addTo(trailGroup);
+  S.chunkCount = arr.length;
+  tip.setStyle({ color: hue(S.chunkNo) }); tip.bringToFront();
+  S.idx = to;
+}
+function trailStyle(n) { return { color: hue(n), weight: 7, opacity: .95, lineCap: 'round', lineJoin: 'round', interactive: false }; }
+function extendTrail(to) {
+  if (to < S.idx || to - S.idx > 300 || !S.chunk) { rebuildTrail(to); return; }
+  for (let k = S.idx + 1; k <= to; k++) {
+    const ll = [P.LA[k], P.LO[k]];
+    if (S.chunkCount > CHUNK) {
+      const last = S.chunk.getLatLngs().slice(-1)[0];
+      S.chunkNo++;
+      S.chunk = L.polyline([last, ll], trailStyle(S.chunkNo)).addTo(trailGroup);
+      S.chunkCount = 2;
+      tip.setStyle({ color: hue(S.chunkNo) }); tip.bringToFront();
+    } else { S.chunk.addLatLng(ll); S.chunkCount++; }
+  }
+  S.idx = to;
+}
+
+/* --- playback --- */
+function idxAt(vt) {
+  let lo = 0, hi = P.n - 1;
+  while (lo < hi) { const m = (lo + hi + 1) >> 1; if (P.VT[m] <= vt) lo = m; else hi = m - 1; }
+  return lo;
+}
+function play(fromPicker) {
+  if (S.ended || S.vt >= P.vEnd) { seek(0); S.ended = false; }
+  S.playing = true; updatePlayBtn();
+  if (S.follow) map.setView(posAt(S.vt).ll, Math.max(map.getZoom(), 17), { animate: !fromPicker });
+}
+function pause() { S.playing = false; updatePlayBtn(); }
+function updatePlayBtn() { $('#playBtn').textContent = S.playing ? '⏸' : '▶'; heroEl && heroEl.classList.toggle('moving', S.playing); }
+function posAt(vt) {
+  const i = idxAt(vt), j = Math.min(i + 1, P.n - 1);
+  const f = j > i ? Math.min(1, (vt - P.VT[i]) / (P.VT[j] - P.VT[i])) : 0;
+  return { i, j, f, ll: [P.LA[i] + (P.LA[j] - P.LA[i]) * f, P.LO[i] + (P.LO[j] - P.LO[i]) * f] };
+}
+function seek(vt) {
+  S.vt = Math.max(0, Math.min(P.vEnd, vt));
+  const { i } = posAt(S.vt);
+  S.lastKm = Math.floor(P.D[i] / 1000);
+  S.lastPoi = P.POI.filter(k => k <= i).length;
+  if (S.vt < P.vEnd) S.ended = false;
+  render(true);
+}
+function render(force) {
+  const { i, j, f, ll } = posAt(S.vt);
+  hero.setLatLng(ll);
+  extendTrail(i);
+  tip.setLatLngs([[P.LA[i], P.LO[i]], ll]);
+  // direction: look a little ahead so the buddy doesn't jitter
+  const k = Math.min(P.n - 1, i + 3);
+  if (haversine(P.LA[i], P.LO[i], P.LA[k], P.LO[k]) > 3) { S.lastBear = bearing(P.LA[i], P.LO[i], P.LA[k], P.LO[k]); orientHero(S.lastBear); }
+  if (S.follow && S.playing) map.panTo(ll, { animate: false });
+  const spd = isFinite(P.SP[i]) ? P.SP[i] + ((isFinite(P.SP[j]) ? P.SP[j] : P.SP[i]) - P.SP[i]) * f : 0;
+  heroEl.classList.toggle('moving', S.playing && spd > 1);
+  // milestones
+  if (S.playing) {
+    const km = Math.floor(P.D[i] / 1000);
+    if (km > S.lastKm) { S.lastKm = km; toast(`🎉 ${km} km done!`); }
+    const poiCount = P.POI.filter(q => q <= i).length;
+    if (poiCount > S.lastPoi) { S.lastPoi = poiCount; toast('⭐ A spot you marked!'); }
+  }
+  const now = performance.now();
+  if (force || now - S.lastUi > 110) { S.lastUi = now; updateStats(i, f, spd); }
+  drawScrub();
+}
+function frame(ts) {
+  const dt = S.lastTs ? Math.min(0.1, (ts - S.lastTs) / 1000) : 0;
+  S.lastTs = ts;
+  if (S.playing && P) {
+    S.vt += dt * S.mult;
+    if (S.vt >= P.vEnd) { S.vt = P.vEnd; S.playing = false; updatePlayBtn(); render(true); finish(); }
+    else render(false);
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+/* --- stats --- */
+let gaugeMax = 10;
+function buildGauge() {
+  const opts = [8, 12, 20, 40, 80, 160];
+  gaugeMax = opts.find(o => o >= P.p98 * 1.1) || 200;
+  const pt = (f, r) => { const a = Math.PI * (1 - f); return [100 + r * Math.cos(a), 100 - r * Math.sin(a)]; };
+  const arc = (f0, f1, col) => { const [x0, y0] = pt(f0, 76), [x1, y1] = pt(f1, 76); return `<path d="M${x0} ${y0} A76 76 0 0 1 ${x1} ${y1}" stroke="${col}" stroke-width="16" fill="none"/>`; };
+  $('#gaugeArcs').innerHTML = arc(0, .5, '#16c2b0') + arc(.5, .8, '#ffd23f') + arc(.8, 1, '#ff5d8f');
+  let t = '';
+  for (let q = 0; q <= 4; q++) { const [x, y] = pt(q / 4, 54); t += `<text x="${x}" y="${y + 4}">${Math.round(gaugeMax * q / 4)}</text>`; }
+  $('#gaugeTicks').innerHTML = t;
+}
+function mood(v) {
+  if (v < 1) return '🐌 Resting';
+  if (v < 6.5) return '🚶 Walking';
+  if (v < 13) return '🏃 Running';
+  if (v < 30) return '🚲 Zooming';
+  return '🚗 Super fast!';
+}
+function updateStats(i, f, spd) {
+  $('#spdNum').textContent = Math.round(spd);
+  $('#needle').style.transform = `rotate(${-90 + 180 * Math.min(1, spd / gaugeMax)}deg)`;
+  $('#mood').textContent = mood(spd);
+  const d = fmtDist(P.D[i]);
+  $('#stDist').innerHTML = `${d.v} <small>${d.u}</small>`;
+  const tReal = P.T[i] + (i + 1 < P.n ? (P.T[i + 1] - P.T[i]) * f : 0);
+  $('#stClock').textContent = fmtClock(P.start + tReal * 1000);
+  $('#stAlt').innerHTML = isFinite(P.AL[i]) ? `${Math.round(P.AL[i])} <small>m</small>` : '– <small>m</small>';
+  $('#stTop').innerHTML = `${Math.round(P.topAt[i])} <small>km/h</small>`;
+  $('#elapsed').textContent = fmtDur(tReal);
+}
+let toastT;
+function toast(t) { const el = $('#toast'); el.textContent = t; el.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove('show'), 2200); }
+
+/* --- scrubber (height profile) --- */
+const scrub = $('#scrub'), sctx = scrub.getContext('2d');
+let scrubPath = null, sW = 0, sH = 0;
+function sizeScrub() {
+  if (!P) return;
+  const r = scrub.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+  sW = r.width; sH = r.height;
+  scrub.width = Math.round(sW * dpr); scrub.height = Math.round(sH * dpr);
+  sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  // area path of the height profile along replay time
+  scrubPath = new Path2D();
+  const lo = P.hasAlt ? P.altMin : 0, span = P.hasAlt ? Math.max(15, P.altMax - P.altMin) : 1;
+  scrubPath.moveTo(0, sH);
+  const step = Math.max(1, Math.floor(P.n / (sW * 1.5)));
+  for (let i = 0; i < P.n; i += step) {
+    const x = P.VT[i] / P.vEnd * sW;
+    const a = P.hasAlt && isFinite(P.AL[i]) ? P.AL[i] : lo + span * .4;
+    scrubPath.lineTo(x, sH - 6 - (a - lo) / span * (sH - 18));
+  }
+  scrubPath.lineTo(sW, sH); scrubPath.closePath();
+  drawScrub();
+}
+function drawScrub() {
+  if (!scrubPath) return;
+  const x = S.vt / P.vEnd * sW;
+  sctx.clearRect(0, 0, sW, sH);
+  sctx.fillStyle = '#eef4fb'; sctx.fillRect(0, 0, sW, sH);
+  sctx.fillStyle = '#c9d8ec'; sctx.fill(scrubPath);
+  sctx.save(); sctx.beginPath(); sctx.rect(0, 0, x, sH); sctx.clip();
+  const g = sctx.createLinearGradient(0, 0, sW, 0);
+  ['#ff5d8f', '#ffb000', '#16c2b0', '#7b5cff'].forEach((c, k) => g.addColorStop(k / 3, c));
+  sctx.fillStyle = g; sctx.fill(scrubPath); sctx.restore();
+  sctx.font = '14px system-ui'; sctx.textAlign = 'center';
+  for (const i of P.POI) sctx.fillText('⭐', P.VT[i] / P.vEnd * sW, 16);
+  sctx.fillStyle = '#1d2b4f'; sctx.fillRect(x - 1.5, 0, 3, sH);
+  sctx.beginPath(); sctx.arc(Math.max(9, Math.min(sW - 9, x)), sH / 2, 9, 0, Math.PI * 2);
+  sctx.fillStyle = '#fff'; sctx.fill(); sctx.lineWidth = 3; sctx.strokeStyle = '#1d2b4f'; sctx.stroke();
+}
+let scrubbing = false, wasPlaying = false;
+function scrubTo(e) { const r = scrub.getBoundingClientRect(); seek((e.clientX - r.left) / r.width * P.vEnd); if (S.follow) map.panTo(posAt(S.vt).ll, { animate: false }); }
+scrub.addEventListener('pointerdown', e => { scrubbing = true; wasPlaying = S.playing; S.playing = false; scrub.setPointerCapture(e.pointerId); scrubTo(e); });
+scrub.addEventListener('pointermove', e => { if (scrubbing) scrubTo(e); });
+const endScrub = () => { if (!scrubbing) return; scrubbing = false; if (wasPlaying && S.vt < P.vEnd) { S.playing = true; } updatePlayBtn(); };
+scrub.addEventListener('pointerup', endScrub);
+scrub.addEventListener('pointercancel', endScrub);
+window.addEventListener('resize', () => { sizeScrub(); map && map.invalidateSize(); });
+
+/* --- controls --- */
+function renderSpeeds() {
+  const el = $('#speeds'); el.innerHTML = '';
+  for (const s of SPEEDS) {
+    const b = document.createElement('button');
+    b.innerHTML = `${s.e}<small>×${s.m}</small>`;
+    b.title = `${s.m} times faster`;
+    if (s.m === S.mult) b.className = 'on';
+    b.onclick = () => { S.mult = s.m; renderSpeeds(); };
+    el.appendChild(b);
+  }
+}
+function setFollow(on) {
+  S.follow = on; $('#followBtn').classList.toggle('on', on);
+  if (on && P) map.setView(posAt(S.vt).ll, Math.max(map.getZoom(), 16));
+}
+function setGhost(on) {
+  S.ghost = on; $('#ghostBtn').classList.toggle('on', on);
+  if (!ghostLine) return;
+  if (on) ghostLine.addTo(staticGroup); else staticGroup.removeLayer(ghostLine);
+}
+$('#playBtn').onclick = () => S.playing ? pause() : play();
+$('#backBtn').onclick = closePlayer;
+$('#followBtn').onclick = () => setFollow(!S.follow);
+$('#ghostBtn').onclick = () => setGhost(!S.ghost);
+$('#buddyBtn').onclick = openBuddyPicker;
+$('#trackTitle').onclick = openBuddyPicker;
+$('#againBtn').onclick = () => { $('#endModal').classList.remove('on'); S.ended = false; seek(0); play(); };
+$('#otherBtn').onclick = closePlayer;
+document.addEventListener('keydown', e => {
+  if (!$('#player').classList.contains('on') || e.target.tagName === 'INPUT') return;
+  if (e.code === 'Space') { e.preventDefault(); S.playing ? pause() : play(); }
+  if (e.key === 'ArrowRight') seek(S.vt + P.vEnd / 50);
+  if (e.key === 'ArrowLeft') seek(S.vt - P.vEnd / 50);
+  if (e.key === 'Escape') closePlayer();
+});
+setFollow(true); setGhost(true);
+
+/* --- finish & confetti --- */
+function finish() {
+  S.ended = true;
+  const d = fmtDist(P.dist);
+  const top = P.topAt[P.n - 1], avg = P.duration ? P.dist / P.duration * 3.6 : 0;
+  const pitches = Math.max(1, Math.round(P.dist / 100));
+  const giraffes = Math.round(P.climb / 5.5);
+  const badges = [
+    ['📏', `${d.v} ${d.u}`, `That's about ${pitches} football pitch${pitches > 1 ? 'es' : ''} long ⚽`],
+    ['⏱️', fmtDurWords(P.duration), `from ${fmtClock(P.start)} to ${fmtClock(P.start + P.duration * 1000)}`],
+    ['⚡', `${Math.round(top)} km/h`, top < 8 ? 'Speedy walker!' : top < 15 ? 'Fast like a fox 🦊' : top < 30 ? 'Quick as a bike 🚲' : 'Zoom zoom like a car 🚗'],
+    P.hasAlt ? ['⛰️', `≈ ${Math.round(P.climb / 5) * 5} m up`, giraffes >= 1 ? `As tall as ${giraffes} giraffe${giraffes > 1 ? 's' : ''} stacked up 🦒` : 'Flat as a pancake 🥞']
+             : ['🧭', `${P.n} dots`, 'GPS points recorded'],
+  ];
+  if (avg < 7) badges.push(['👣', `≈ ${(Math.round(P.dist / 0.55 / 100) * 100).toLocaleString()}`, 'steps (roughly)']);
+  if (P.POI.length) badges.push(['⭐', `${P.POI.length}`, `special spot${P.POI.length > 1 ? 's' : ''} marked`]);
+  $('#badges').innerHTML = badges.map(b => `<div class="badge"><div class="i">${b[0]}</div><div><b>${b[1]}</b><span>${b[2]}</span></div></div>`).join('');
+  $('#endSub').textContent = `${S.buddy.e} ${S.buddy.n} made it to the finish 🏁`;
+  setTimeout(() => { $('#endModal').classList.add('on'); confetti(); }, 500);
+}
+function confetti() {
+  const c = $('#confetti'), x = c.getContext('2d');
+  c.width = innerWidth; c.height = innerHeight;
+  const cols = ['#ff5d8f', '#ffd23f', '#16c2b0', '#7b5cff', '#ff8a3d'];
+  const ps = Array.from({ length: 160 }, () => ({ x: Math.random() * c.width, y: -20 - Math.random() * c.height * .5, vx: (Math.random() - .5) * 3,
+    vy: 2 + Math.random() * 4, r: Math.random() * 6.3, vr: (Math.random() - .5) * .3, w: 6 + Math.random() * 6, c: cols[Math.random() * cols.length | 0] }));
+  const t0 = performance.now();
+  (function step(t) {
+    x.clearRect(0, 0, c.width, c.height);
+    for (const p of ps) {
+      p.x += p.vx; p.y += p.vy; p.r += p.vr; p.vy += .03;
+      x.save(); x.translate(p.x, p.y); x.rotate(p.r); x.fillStyle = p.c; x.fillRect(-p.w / 2, -p.w / 4, p.w, p.w / 2); x.restore();
+    }
+    if (t - t0 < 4500) requestAnimationFrame(step); else x.clearRect(0, 0, c.width, c.height);
+  })(t0);
+}
+
+/* ================= start ================= */
+loadTracks();
+renderHome();
+</script>
+</body>
+</html>
