@@ -44,6 +44,8 @@ button{font-family:inherit;color:inherit;cursor:pointer;border:0;background:none
 .add small{color:var(--soft);font-size:15px;max-width:220px}
 .add input{display:none}
 body.dragging .add{border-color:var(--pink);background:#fff0f5}
+.foot{margin-top:18px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;color:var(--soft);font-size:14.5px}
+.foot button{background:#fff;border-radius:14px;padding:8px 14px;font-weight:700;font-size:15px;box-shadow:0 3px 0 #cfe0f3}
 .note{margin-top:26px;color:var(--soft);font-size:15px;background:rgba(255,255,255,.6);padding:10px 14px;border-radius:14px}
 
 /* ---------- PLAYER ---------- */
@@ -201,6 +203,7 @@ body.dragging .add{border-color:var(--pink);background:#fff0f5}
   <div class="note" id="note">
     💾 Adventures are saved in this browser on this device. Add new ones with the yellow <b>+</b> (choose the .CSV files from the GPS tracker, or drag them here). GPX files work too.
   </div>
+  <div class="foot"><span id="ver">Version 7 · 11 Nov 2026</span><button id="reloadBtn">🔄 Get newest version</button></div>
 </section>
 
 <!-- ============ PLAYER ============ -->
@@ -1417,6 +1420,15 @@ function d3Open(tr) {
   if (ok && prefs.d3) d3Enter();
 }
 $('#d3Btn').onclick = () => { if (D3.on) { d3Exit(); prefs.d3 = false; savePrefs(); map.invalidateSize(); } else d3Enter(); };
+
+/* --- force reload: fetch a fresh copy past the browser cache; saved adventures are kept --- */
+$('#reloadBtn').onclick = async () => {
+  const btn = $('#reloadBtn'); btn.disabled = true; btn.textContent = '⏳ Loading…';
+  const url = location.href.split(/[?#]/)[0];
+  try { if (window.caches) for (const k of await caches.keys()) await caches.delete(k); } catch (e) {}
+  try { await fetch(url, { cache: 'reload' }); } catch (e) {}
+  if (location.protocol === 'file:') location.reload(); else location.replace(url + '?r=' + Date.now());
+};
 
 /* ================= start ================= */
 loadTracks();
