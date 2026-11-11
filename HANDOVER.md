@@ -45,6 +45,13 @@ So: get real network access (or have the owner test) before trusting any of that
 ## Open items
 
 1. **Bugs.** The owner reports "a couple of minor bugs" but has not described them yet. Ask for them (screenshots help) before changing anything.
+   - **Reported: rooftop detection works sometimes and sometimes not.** Not yet reproduced. Suspects in `fetchBuildings` / `analyseRoofs` / `ensureRoofs`:
+     - Overpass can answer HTTP 200 with an empty `elements` list plus a `remark` (timeout or overload). The code treats that as "no houses" and caches it on the trip for good, so that trip never detects roofs again. Check for `remark` and don't cache such answers.
+     - Rate limiting or timeouts on the two Overpass servers; a failure shows the toast "No rooftops: no internet?" and is only retried when the trip is reopened or a switch is toggled.
+     - Long trips produce a very large `around:` query (up to ~1200 points).
+     - A roof only counts when 2+ consecutive GPS points fall inside the same outline, so GPS drift beside a house, or a fast pass, is ignored.
+     - If `localStorage` is full, `tr.roofs` isn't saved and is fetched again each time.
+     - In 3D mode the gold roofs aren't drawn at all (only counter, toast and sound).
 2. **Bern button / offline test map.** The owner asked to "add Bern as a button and make the 3D version of Bern the offline test map". It was not clarified. Open questions: should the button open free 3D exploration of Bern, a demo walk, or both? Does "offline" mean caching on the phone (service worker), a full pre-download, or Bern data checked into the repo? Note the privacy point above if a demo walk is wanted.
 3. In 3D mode, coins, sparkles and gold roof highlights are not drawn (counter, toasts and sounds work).
 4. `localStorage` is small (about 5 MB). Many long trips will hit the limit; IndexedDB would fix that.
