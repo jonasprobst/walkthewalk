@@ -203,7 +203,7 @@ body.dragging .add{border-color:var(--pink);background:#fff0f5}
   <div class="note" id="note">
     💾 Adventures are saved in this browser on this device. Add new ones with the yellow <b>+</b> (choose the .CSV files from the GPS tracker, or drag them here). GPX files work too.
   </div>
-  <div class="foot"><span id="ver">Version 7 · 11 Nov 2026</span><button id="reloadBtn">🔄 Get newest version</button></div>
+  <div class="foot"><span id="ver">Version 8 · 11 Nov 2026</span><button id="reloadBtn">🔄 Get newest version</button></div>
 </section>
 
 <!-- ============ PLAYER ============ -->
@@ -1021,12 +1021,13 @@ $('#funDone').onclick = () => $('#funModal').classList.remove('on');
 function funOpen(tr) {
   if (!funGroup) { funGroup = L.layerGroup().addTo(map); coinGroup = L.layerGroup().addTo(map); }
   funGroup.clearLayers(); coinGroup.clearLayers();
-  Object.assign(S, { wasRoof: false, lastStep: 0, lastSpark: 0, lastRoofToast: 0, roofsLoading: false });
+  Object.assign(S, { wasRoof: false, lastStep: 0, lastSpark: 0, lastRoofToast: 0 });
+  roofStop();
   P.roofAt = null; P.coins = null; P.lit = null;
-  if (tr.roofs && tr.roofs.v === 1) applyRoofs(tr.roofs);
+  if (tr.roofs && tr.roofs.v === ROOF_V) applyRoofs(tr.roofs);
   funApply();
 }
-function funClose() { if (funGroup) { funGroup.clearLayers(); coinGroup.clearLayers(); } $('#funPill').classList.remove('show'); }
+function funClose() { roofStop(); if (funGroup) { funGroup.clearLayers(); coinGroup.clearLayers(); } $('#funPill').classList.remove('show'); }
 function funApply() {
   if (!P || !$('#player').classList.contains('on')) return;
   if (needsRoofs() && !P.roofAt) ensureRoofs(cur);
@@ -1038,33 +1039,66 @@ function funApply() {
 }
 
 /* --- house outlines from OpenStreetMap (Overpass API) --- */
-const OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
-async function fetchBuildings(tr) {
-  // thin the path to a point every ~15 m, at most ~1200 points
+const OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://overpass.private.coffee/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
+const OVERPASS_CH = 'https://overpass.osm.ch/api/interpreter'; // Swiss server: only knows Switzerland and a strip around it
+const ROOF_V = 2;          // version of the saved answer (tr.roofs.v); older ones are looked up again
+const ROOF_CHUNK = 80;     // path points per question: long paths in one question make the server time out
+const ROOF_WAIT = 20000;   // ms before giving up on a silent server
+const ROOF_RETRY = [5, 10, 20, 40, 60]; // s between new attempts after all servers failed
+let roofJob = null;        // the lookup in progress: { tr, qs, got, urls, tries, timer, busy, ac }
+
+// the path as a list of small Overpass questions (a point every ~15 m, at most ~1200 points in total)
+function roofQueries(tr) {
   let pts = [], last = null;
   for (const p of tr.pts) if (!last || haversine(last[1], last[2], p[1], p[2]) > 15) { pts.push(p); last = p; }
-  const step = Math.ceil(pts.length / 1200);
-  const coords = [];
-  for (let k = 0; k < pts.length; k += step) coords.push(pts[k][1].toFixed(5) + ',' + pts[k][2].toFixed(5));
   const pl = tr.pts[tr.pts.length - 1];
-  coords.push(pl[1].toFixed(5) + ',' + pl[2].toFixed(5));
-  const r = step > 1 ? 35 : 25, c = coords.join(',');
-  const q = `[out:json][timeout:60];(way["building"](around:${r},${c});relation["building"](around:${r},${c}););out geom;`;
+  if (pts[pts.length - 1] !== pl) pts.push(pl);
+  const step = Math.ceil(pts.length / 1200);
+  if (step > 1) pts = pts.filter((p, k) => k % step === 0 || k === pts.length - 1);
+  const qs = [];
+  // "around" with several points means: near the line through them. Pieces overlap by one point so nothing is skipped.
+  for (let k = 0; k === 0 || k < pts.length - 1; k += ROOF_CHUNK) {
+    const c = pts.slice(k, k + ROOF_CHUNK + 1).map(p => p[1].toFixed(5) + ',' + p[2].toFixed(5)).join(',');
+    qs.push(`[out:json][timeout:25];wr["building"](around:30,${c});out geom;`);
+  }
+  return qs;
+}
+// ask one question; servers that fail, hang or answer "too busy" go to the back of the line
+async function askOverpass(q, job) {
   let lastErr;
-  for (const url of OVERPASS) {
+  for (let n = job.urls.length; n > 0; n--) {
+    const url = job.urls[0], ac = job.ac = new AbortController(), timer = setTimeout(() => ac.abort(), ROOF_WAIT);
     try {
-      const res = await fetch(url, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+      const res = await fetch(url, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, signal: ac.signal });
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const js = await res.json();
-      const rings = [];
-      for (const el of js.elements || []) {
-        if (el.type === 'way' && el.geometry) rings.push(el.geometry.map(g => [g.lat, g.lon]));
-        if (el.type === 'relation') for (const m of el.members || []) if (m.role === 'outer' && m.geometry) rings.push(m.geometry.map(g => [g.lat, g.lon]));
-      }
-      return rings.filter(r => r.length >= 3);
-    } catch (e) { lastErr = e; }
+      if (!js || !Array.isArray(js.elements)) throw new Error('unexpected answer');
+      // a timed out or overloaded server says "200 OK" with a remark and a cut-off (often empty) list: that is NOT "no houses".
+      // (a rate-limited one says "200 OK" with an HTML page, which fails in res.json() above)
+      if (js.remark) throw new Error(js.remark);
+      return js.elements;
+    } catch (e) {
+      lastErr = e; console.warn('[roofs]', url, String(e && e.message || e));
+      job.urls.push(job.urls.shift());
+    } finally { clearTimeout(timer); }
+    if (roofJob !== job) break;
   }
   throw lastErr;
+}
+async function fetchBuildings(job) {
+  for (let k = 0; k < job.qs.length; k++) {
+    if (job.got[k]) continue;               // already answered in an earlier attempt
+    const els = await askOverpass(job.qs[k], job);
+    if (roofJob !== job) throw new Error('cancelled');
+    job.got[k] = els;
+  }
+  const rings = [], seen = new Set();
+  for (const els of job.got) for (const el of els) {
+    const id = el.type + el.id; if (seen.has(id)) continue; seen.add(id);
+    if (el.type === 'way' && el.geometry) rings.push(el.geometry.map(g => [g.lat, g.lon]));
+    if (el.type === 'relation') for (const m of el.members || []) if (m.role === 'outer' && m.geometry) rings.push(m.geometry.map(g => [g.lat, g.lon]));
+  }
+  return rings.filter(r => r.length >= 3);
 }
 function inRing(lat, lon, ring) {
   let inside = false;
@@ -1074,7 +1108,9 @@ function inRing(lat, lon, ring) {
   }
   return inside;
 }
-// which house (if any) each GPS point is on; keep only visits of 2+ points so GPS flicker doesn't count
+// which house (if any) the path is on after each GPS point. The path between two points is checked every ~2 m,
+// so a slow logger (a point every few seconds) finds the same roofs as a fast one.
+// A visit counts with 2+ points in a row on the same house or 4+ m across it, so GPS flicker doesn't count.
 function analyseRoofs(tr, rings) {
   const G = 0.0005, grid = new Map();
   rings.forEach((r, bi) => {
@@ -1085,15 +1121,30 @@ function analyseRoofs(tr, rings) {
         const key = gy + ':' + gx; if (!grid.has(key)) grid.set(key, []); grid.get(key).push(bi);
       }
   });
-  const on = tr.pts.map(p => {
-    const cand = grid.get(Math.floor(p[1] / G) + ':' + Math.floor(p[2] / G)) || [];
-    for (const bi of cand) if (inRing(p[1], p[2], rings[bi])) return bi;
+  const houseAt = (la, lo) => {
+    const cand = grid.get(Math.floor(la / G) + ':' + Math.floor(lo / G)) || [];
+    for (const bi of cand) if (inRing(la, lo, rings[bi])) return bi;
     return -1;
-  });
+  };
+  const pts = tr.pts, n = pts.length, on = new Array(n).fill(-1), len = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    const p = pts[i], q = pts[i + 1] || p;
+    const d = haversine(p[1], p[2], q[1], q[2]);
+    const walked = d <= 80;                  // bigger jumps (tunnel, tracker off) were not walked in a straight line
+    const steps = walked && d > 2 ? Math.min(40, Math.ceil(d / 2)) : 1;
+    let best = -1, bestN = 0; const tally = new Map();
+    for (let k = 0; k < steps; k++) {
+      const f = k / steps, bi = houseAt(p[1] + (q[1] - p[1]) * f, p[2] + (q[2] - p[2]) * f);
+      if (bi < 0) continue;
+      const c = (tally.get(bi) || 0) + 1; tally.set(bi, c);
+      if (c > bestN) { best = bi; bestN = c; }
+    }
+    on[i] = best; len[i] = walked ? bestN * d / steps : 0;
+  }
   const visits = [];
-  for (let i = 0; i < on.length;) {
-    let j = i; while (j + 1 < on.length && on[j + 1] === on[i]) j++;
-    if (on[i] >= 0 && j > i) visits.push([on[i], i, j]);
+  for (let i = 0; i < n;) {
+    let j = i, m = len[i]; while (j + 1 < n && on[j + 1] === on[i]) m += len[++j];
+    if (on[i] >= 0 && (j > i || m >= 4)) visits.push([on[i], i, j]);
     i = j + 1;
   }
   // keep only the houses actually visited, renumbered
@@ -1102,14 +1153,26 @@ function analyseRoofs(tr, rings) {
     if (!map.has(v[0])) { map.set(v[0], bld.length); bld.push(rings[v[0]].map(([a, o]) => [Math.round(a * 1e6) / 1e6, Math.round(o * 1e6) / 1e6])); }
     v[0] = map.get(v[0]);
   }
-  return { v: 1, bld, visits };
+  return { v: ROOF_V, bld, visits };
 }
-async function ensureRoofs(tr) {
-  if (S.roofsLoading || !tr) return;
-  S.roofsLoading = true;
+function ensureRoofs(tr) {
+  if (!tr || (roofJob && roofJob.tr === tr)) return;
+  roofStop();
+  const urls = OVERPASS.slice();
+  if (tr.pts.every(p => inSwiss({ pts: [p] }))) urls.splice(1, 0, OVERPASS_CH);
+  roofJob = { tr, qs: roofQueries(tr), got: [], urls, tries: 0, timer: 0, busy: false };
   toast('🔍 Looking for rooftops…');
+  roofRun(roofJob);
+}
+function roofStop() { const j = roofJob; if (j) { roofJob = null; clearTimeout(j.timer); if (j.ac) j.ac.abort(); } }
+async function roofRun(job) {
+  if (job.busy || roofJob !== job) return;
+  job.busy = true; clearTimeout(job.timer); job.timer = 0;
+  const tr = job.tr;
   try {
-    const rings = await fetchBuildings(tr);
+    const rings = await fetchBuildings(job);
+    if (roofJob !== job) return;
+    roofJob = null;
     tr.roofs = analyseRoofs(tr, rings);
     saveTracks();
     if (cur === tr && P) {
@@ -1120,11 +1183,16 @@ async function ensureRoofs(tr) {
       funRender(posAt(S.vt).i, 0, null, true);
     }
   } catch (e) {
-    console.warn(e);
-    if (cur === tr) toast('😕 No rooftops: no internet?');
+    if (roofJob !== job) return;
+    job.busy = false;
+    const wait = ROOF_RETRY[job.tries++];
+    if (wait === undefined) { roofJob = null; toast('😕 No rooftops this time. Try again later!'); return; }
+    // nothing is saved, so a failed lookup can never be mistaken for "no houses here"
+    if (job.tries === 1) toast(navigator.onLine === false ? '📡 No internet: rooftops come when it is back' : '⏳ Rooftop finder is busy: trying again…');
+    job.timer = setTimeout(() => roofRun(job), wait * 1000);
   }
-  S.roofsLoading = false;
 }
+window.addEventListener('online', () => { if (roofJob && roofJob.timer) roofRun(roofJob); });
 function applyRoofs(R) {
   P.roofAt = new Int32Array(P.n).fill(-1);
   P.bldFirst = R.bld.map(() => Infinity);
@@ -1207,6 +1275,7 @@ function funRender(i, spd, ll, silent) {
   const pill = $('#funPill');
   pill.classList.toggle('show', parts.length > 0);
   pill.textContent = parts.join('  ·  ');
+  d3SyncLit(i);
 }
 function funBadges(badges) {
   if (F.roofs && P.bldRings) {
@@ -1250,7 +1319,7 @@ const SWISS_TERRAIN = 'https://3d.geo.admin.ch/ch.swisstopo.terrain.3d/v1';
 const SWISS_BUILDINGS = 'https://3d.geo.admin.ch/ch.swisstopo.swissbuildings3d.3d/v1/tileset.json';
 const SWISS_IMAGE = 'https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.swissimage/default/current/3857/{z}/{x}/{y}.jpeg';
 var D3 = { on: false, loading: false, viewer: null, bb: null, hero: null, ghost: null, trail: [], chunkStart: 0, chunkNo: 0,
-             h: null, lastClamp: 0, head: null, cam: 'chase', rebuildT: null };
+             h: null, lastClamp: 0, head: null, cam: 'chase', rebuildT: null, lit: null, litFor: null };
 const D3_CHUNK = 25;
 const inSwiss = tr => { const p = tr.pts[0]; return p[1] > 45.8 && p[1] < 47.85 && p[2] > 5.9 && p[2] < 10.55; };
 const playerOpen = () => $('#player').classList.contains('on');
@@ -1309,7 +1378,7 @@ function d3Buddy() { if (D3.hero && S.buddy) D3.hero.image = pinCanvas(S.buddy.e
 /* set up the current trip in the 3D scene */
 function d3Track() {
   const C = Cesium, v = D3.viewer;
-  v.entities.removeAll(); D3.bb.removeAll();
+  v.entities.removeAll(); D3.bb.removeAll(); D3.lit = null;
   D3.trail = []; D3.chunkStart = 0; D3.chunkNo = 0; D3.h = null; D3.head = null; D3.lastClamp = 0;
   const step = Math.ceil(P.n / 1200), arr = [];
   for (let k = 0; k < P.n; k += step) arr.push(P.LO[k], P.LA[k]);
@@ -1321,6 +1390,22 @@ function d3Track() {
   mark(0, '🏠'); mark(P.n - 1, '🏁');
   D3.hero = D3.bb.add({ position: C.Cartesian3.fromDegrees(P.LO[0], P.LA[0], 600), image: pinCanvas(S.buddy ? S.buddy.e : '🐕'), scale: .5,
     verticalOrigin: C.VerticalOrigin.BOTTOM, disableDepthTestDistance: Number.POSITIVE_INFINITY });
+}
+/* gold roofs in 3D: the house outline is painted onto whatever is there (3D house or ground) */
+function d3SyncLit(i) {
+  if (!D3.on || !D3.viewer || !P) return;
+  const C = Cesium, ents = D3.viewer.entities, rings = F.roofs ? P.bldRings : null;
+  if (D3.lit && D3.litFor !== rings) { for (const e of D3.lit) if (e) ents.remove(e); D3.lit = null; }
+  if (!rings) return;
+  if (!D3.lit) { D3.lit = rings.map(() => null); D3.litFor = rings; }
+  rings.forEach((ring, b) => {
+    const want = P.bldFirst[b] <= i;
+    if (want && !D3.lit[b]) {
+      const arr = []; for (const [la, lo] of ring) arr.push(lo, la);
+      D3.lit[b] = ents.add({ polygon: { hierarchy: C.Cartesian3.fromDegreesArray(arr), material: C.Color.fromCssColorString('#ffc21a').withAlpha(.7),
+        classificationType: C.ClassificationType.BOTH } });
+    } else if (D3.lit[b]) D3.lit[b].show = want;
+  });
 }
 function d3Chunk(a, b) {
   const C = Cesium, arr = [];

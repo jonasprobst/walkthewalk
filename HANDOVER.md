@@ -19,7 +19,7 @@ A single-page web app for a child aged 6–9 to replay family GPS tracks on a ma
 3. **storage**: trips live in `localStorage` key `adventureReplay.tracks.v1`; settings in `adventureReplay.prefs.v1` (`buddy`, `fun{roofs,powers,sounds,coins}`, `d3`). Nothing is uploaded.
 4. **home screen**: cards with SVG route thumbnails, add/rename/delete, version footer and "Get newest version" button.
 5. **player (flat map)**: Leaflet + OpenStreetMap raster tiles. State in global `S`. `openTrackInner` sets up a trip, `render()` runs per frame, `seek()` jumps. The buddy is a `divIcon` pin whose tip is the exact position.
-6. **fun extras** (all opt-in, default off): rooftop detector, secret powers, sounds (WebAudio), coins. Building outlines come from the Overpass API once per trip and are cached on the trip as `tr.roofs`.
+6. **fun extras** (all opt-in, default off): rooftop detector, secret powers, sounds (WebAudio), coins. Building outlines come from the Overpass API once per trip and are cached on the trip as `tr.roofs` (`v: 2`; older answers are looked up again). The path is asked in pieces of 80 points (`roofQueries`), each piece tries the servers in turn with a 20 s limit (`askOverpass`), and a failed lookup is retried by itself and never saved (`roofRun`). `analyseRoofs` checks the path between GPS points every ~2 m.
 7. **3D mode** (opt-in, only offered for trips starting in Switzerland): CesiumJS 1.124 loaded on demand, with swisstopo terrain, SWISSIMAGE aerial tiles and swissBUILDINGS3D 3D Tiles. State in global `D3`. `d3Render` moves the buddy billboard, clamps it to roof/ground height and drives the camera (chase / bird / free).
 
 ## Conventions
@@ -32,28 +32,35 @@ A single-page web app for a child aged 6–9 to replay family GPS tracks on a ma
 
 ## What has and hasn't been verified
 
-Verified in headless Chrome with the Leaflet stand-in: import, storage, replay, stats, extras logic (with fake building data), finish screen, phone and desktop layouts, version footer and reload.
+Verified by `test/smoke.py` (headless Chrome, Leaflet stand-in, no network): import, storage, replay, stats, extras logic, an overloaded Overpass answer not being cached, slow-logger roof detection, finish screen, version footer.
 
-**Never seen running by the previous agent** (its sandbox could not reach these hosts):
+Verified on 11 Nov 2026 in headless Chromium against the real services, with a made-up straight-line walk through Bern:
 
-- Real Leaflet with OSM tiles. One real bug was found this way by the owner and fixed (marker element requested before the map had a view).
-- Overpass rooftop lookup against real data.
-- The whole Cesium 3D mode: only the control flow was exercised with a Proxy stand-in. Service URLs were taken from docs.geo.admin.ch. Likely trouble spots: Viewer options, imagery URL/levels, `clampToHeight` behaviour on the phone, camera heading, ground-clamped polylines over 3D tiles, performance.
+- Real Leaflet with OSM tiles.
+- Rooftop lookup with real building data from `overpass.osm.ch`.
+- 3D mode: Cesium loads, swisstopo terrain, SWISSIMAGE and swissBUILDINGS3D draw, the buddy stands on roof/ground height, chase and bird camera, gold roofs.
 
-So: get real network access (or have the owner test) before trusting any of that.
+Not verified:
+
+- `overpass-api.de`, `overpass.kumi.systems` and `overpass.private.coffee` refused or hung from the test sandbox, so the app was only seen working through the Swiss server. Whether they behave on the owner's phone is unknown.
+- Anything on a real Android phone: 3D speed, touch, `clampToHeight` on a phone GPU.
+- The owner's real tracks (logging interval, GPS drift). Not in the repo on purpose.
+
+Testing tips: Cesium's workers do not run from `file://`, so serve the folder (`python3 -m http.server`) to test 3D. Headless Chromium needs `--use-angle=swiftshader --enable-unsafe-swiftshader` for WebGL. `CHROME=/path/to/chrome python3 test/smoke.py` uses a system browser.
 
 ## Open items
 
 1. **Bugs.** The owner reports "a couple of minor bugs" but has not described them yet. Ask for them (screenshots help) before changing anything.
-   - **Reported: rooftop detection works sometimes and sometimes not.** Not yet reproduced. Suspects in `fetchBuildings` / `analyseRoofs` / `ensureRoofs`:
-     - Overpass can answer HTTP 200 with an empty `elements` list plus a `remark` (timeout or overload). The code treats that as "no houses" and caches it on the trip for good, so that trip never detects roofs again. Check for `remark` and don't cache such answers.
-     - Rate limiting or timeouts on the two Overpass servers; a failure shows the toast "No rooftops: no internet?" and is only retried when the trip is reopened or a switch is toggled.
-     - Long trips produce a very large `around:` query (up to ~1200 points).
-     - A roof only counts when 2+ consecutive GPS points fall inside the same outline, so GPS drift beside a house, or a fast pass, is ignored.
-     - If `localStorage` is full, `tr.roofs` isn't saved and is fetched again each time.
-     - In 3D mode the gold roofs aren't drawn at all (only counter, toast and sound).
+   - **Rooftop detection worked sometimes and sometimes not: fixed in version 8**, waiting for the owner to confirm on the phone. Causes found, each reproduced first:
+     - Long trips never worked: one `around:` query with ~1200 points takes minutes (100 points 2.4 s, 200 points 12 s, 1200 points timeout / HTTP 500 on a real server). Now asked in pieces of 80 points.
+     - An overloaded server answers HTTP 200 with an empty list and a `remark`; this was saved as "no houses" for good. Now treated as a failure. A rate-limited server answers HTTP 200 with an HTML page (`duplicate_query`, `rate_limited`).
+     - No time limit on requests: a hanging server meant "Looking for rooftops…" for ever. Now 20 s, then the next server.
+     - A failure was not retried until the trip was reopened. Now retried after 5, 10, 20, 40, 60 s, and at once when the phone comes back online.
+     - Only GPS points were tested, and 2 in a row were needed, so a logger writing every 5 s found half the roofs (14 instead of 29 on the test walk). Now the path between points is tested too (25 of 29).
+     - 3D mode drew no gold roofs. Now it does (`d3SyncLit`).
+     - Still open: rooftops depend on GPS drift, because nobody walks through houses. A walk beside a house is a roof only if the track wobbles 4+ m into the outline. If `localStorage` is full, `tr.roofs` isn't saved and is fetched again each time.
 2. **Bern button / offline test map.** The owner asked to "add Bern as a button and make the 3D version of Bern the offline test map". It was not clarified. Open questions: should the button open free 3D exploration of Bern, a demo walk, or both? Does "offline" mean caching on the phone (service worker), a full pre-download, or Bern data checked into the repo? Note the privacy point above if a demo walk is wanted.
-3. In 3D mode, coins, sparkles and gold roof highlights are not drawn (counter, toasts and sounds work).
+3. In 3D mode, coins and sparkles are not drawn (counter, toasts and sounds work). Gold roofs are drawn since version 8.
 4. `localStorage` is small (about 5 MB). Many long trips will hit the limit; IndexedDB would fix that.
 5. The app needs internet for map tiles; there is no service worker yet.
 6. GitHub Pages was enabled by hand in the repo settings (deploy from branch `main`, `/`).
